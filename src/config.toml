@@ -1,0 +1,4 @@
+[defaults]
+nr_servers = 3
+[servers]
+init_port = 10000
