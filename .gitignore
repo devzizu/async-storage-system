@@ -1,0 +1,6 @@
+target/
+.prettierrc
+.vscode/
+.classpath
+.project
+.settings/
