@@ -4,7 +4,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-import app.data.ClientMessage;
+import app.data.CMResponsePut;
 
 public class FutureResponses {
 
@@ -20,29 +20,17 @@ public class FutureResponses {
         this.requestId = 0;
     }
 
-    public void addPendingRequest(String type, CompletableFuture<?> request) {
+    public void addPendingPutRequest(CompletableFuture<Void> request) {
 
-        switch (type) {
-            case "PUT":
-                this.CFUTURE_PUTS.put(this.requestId++, (CompletableFuture<Void>) request);
-                break;
-            case "GET":
-                this.CFUTURE_GETS.put(this.requestId++, (CompletableFuture<Map<Long, byte[]>>) request);
-                break;
-        }
+        this.CFUTURE_PUTS.put(this.requestId++, request);
     }
 
     public int getId() {
         return this.requestId;
     }
 
-    public void complete(ClientMessage cMessage) {
+    public void complete(CMResponsePut resPut) {
 
-        int id = cMessage.getMESSAGE_ID();
-
-        if (cMessage.isPut())
-            this.CFUTURE_PUTS.get(id).complete(null);
-        else
-            this.CFUTURE_GETS.get(id).complete(cMessage.getRequestPut());
+        this.CFUTURE_PUTS.get(resPut.getMESSAGE_ID()).complete(null);
     }
 }

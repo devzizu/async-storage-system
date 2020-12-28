@@ -4,7 +4,6 @@ package app.client;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 import app.Config;
 import app.client.api.StorageAPI;
@@ -53,21 +52,30 @@ public class Client {
 
         Map<Long, byte[]> mapTestPut = new HashMap<Long, byte[]>();
 
-        mapTestPut.put((long) 1, "val1".getBytes());
-        mapTestPut.put((long) 2, "val2".getBytes());
-        mapTestPut.put((long) 3, "val3".getBytes());
-        mapTestPut.put((long) 4, "val4".getBytes());
+        CompletableFuture<Void> resultPut = null;
 
-        CompletableFuture<Void> resultPut = API.put(mapTestPut);
-        CompletableFuture<Map<Long, byte[]>> resultGet = API
-                .get(mapTestPut.keySet().stream().collect(Collectors.toList()));
+        if (CLIENT_ID == 0) {
+
+            mapTestPut.put((long) 0, "store1".getBytes());
+
+            resultPut = API.put(mapTestPut, 0);
+
+        } else {
+
+            mapTestPut.put((long) 0, "store0".getBytes());
+
+            resultPut = API.put(mapTestPut, 1);
+        }
+
+        // CompletableFuture<Map<Long, byte[]>> resultGet = API
+        // .get(mapTestPut.keySet().stream().collect(Collectors.toList()));
 
         resultPut.thenAccept(action -> {
             System.out.println("Received response put!");
         });
 
-        resultGet.thenAccept(action -> {
-            System.out.println("Received response get!");
-        });
+        // resultGet.thenAccept(action -> {
+        // System.out.println("Received response get!");
+        // });
     }
 }

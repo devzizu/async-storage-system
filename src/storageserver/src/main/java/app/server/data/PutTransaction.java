@@ -16,12 +16,14 @@ public class PutTransaction implements Serializable {
     // keys to put
     private Map<Long, Boolean> keysToPut;
     private int[] timestamp;
+    private int clientPort;
 
-    public PutTransaction(List<Long> keys, int[] timestamp) {
+    public PutTransaction(List<Long> keys, int[] timestamp, int port) {
 
         this.keysToPut = new HashMap<>();
         keys.forEach(k -> this.keysToPut.put(k, false));
         this.timestamp = timestamp;
+        this.clientPort = port;
     }
 
     public void setDone(Long key) {
@@ -37,6 +39,10 @@ public class PutTransaction implements Serializable {
         return this.timestamp;
     }
 
+    public int getClientPort() {
+        return this.clientPort;
+    }
+
     @Override
     public String toString() {
         return "{" + " keysToPut='" + getKeysToPut() + "'" + ", timestamp='" + getTimestamp() + "'" + "}";
@@ -50,5 +56,16 @@ public class PutTransaction implements Serializable {
         Set<Long> emComum = received_keys.stream().distinct().filter(my_keys::contains).collect(Collectors.toSet());
 
         return emComum.stream().collect(Collectors.toCollection(HashSet::new));
+    }
+
+    public void removeAll(List<Long> list) {
+
+        for (Long l : list)
+            this.keysToPut.remove(l);
+    }
+
+    public boolean isFinished() {
+
+        return this.keysToPut.entrySet().stream().filter(e -> e.getValue() == false).count() == 0;
     }
 }
