@@ -8,6 +8,7 @@ import java.io.ObjectOutputStream;
 import java.util.Map;
 
 import app.data.ClientMessage;
+import app.server.data.ServerMessage;
 
 public class Serialization {
 
@@ -20,7 +21,7 @@ public class Serialization {
         return byteOut.toByteArray();
     }
 
-    public static ClientMessage deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
+    public static ClientMessage deserializeCM(byte[] bytes) throws IOException, ClassNotFoundException {
 
         ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
         ObjectInputStream in = new ObjectInputStream(byteIn);
@@ -28,5 +29,15 @@ public class Serialization {
         Object result = in.readObject();
 
         return (ClientMessage) result;
+    }
+
+    public static ServerMessage deserializeSM(byte[] bytes) throws IOException, ClassNotFoundException {
+
+        ByteArrayInputStream byteIn = new ByteArrayInputStream(bytes);
+        ObjectInputStream in = new ObjectInputStream(byteIn);
+
+        Object result = in.readObject();
+
+        return (ServerMessage) result;
     }
 }
