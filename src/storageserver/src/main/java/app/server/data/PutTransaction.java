@@ -1,6 +1,7 @@
 
 package app.server.data;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -8,7 +9,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class PutTransaction {
+public class PutTransaction implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     // keys to put
     private Map<Long, Boolean> keysToPut;

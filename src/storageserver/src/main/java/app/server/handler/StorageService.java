@@ -95,7 +95,7 @@ public class StorageService {
 
                     // creating request message
 
-                    ServerMessage sendRequest = new ServerMessage(clientTransaction, keyATM, valueATM);
+                    ServerMessage sendRequest = new ServerMessage(clientTransaction, keyATM, valueATM, this.SERVER_ID);
 
                     byte[] sendBytes = null;
 
@@ -161,6 +161,8 @@ public class StorageService {
 
             PutTransaction transactionReceived = sMessage.getTransaction();
 
+            boolean hasEncontredCommon = false;
+
             for (Map.Entry<Integer, PutTransaction> entries : this.WAITING_PUTS.entrySet()) {
 
                 PutTransaction currenTransaction = entries.getValue();
@@ -170,30 +172,35 @@ public class StorageService {
                 // confito -> comparar relogios
                 if (emComum.contains(sMessage.getKeyToVerify())) {
 
-                    if (currenTransaction.getTimestamp()[this.SERVER_ID] < transactionReceived
+                    // encontrou cenas em comum
+                    hasEncontredCommon = true;
+
+                    // conflit of timestamps, wins the least id
+                    if (currenTransaction.getTimestamp()[this.SERVER_ID] == transactionReceived
                             .getTimestamp()[this.SERVER_ID]) {
 
-                        // a transaction deste servidor ganha
-                        // enviar lista em comum para cancelar
+                        if (this.SERVER_ID < sMessage.getFromID()) {
 
-                        // envio e saio do for
+                            // destination server wins
 
-                    } else if (currenTransaction.getTimestamp()[this.SERVER_ID] > transactionReceived
-                            .getTimestamp()[this.SERVER_ID]) {
+                            // enviar lista em comum para cancelar
 
-                        this.DATABASE_SET.put(sMessage.getKeyToVerify(), sMessage.getKeyValue());
+                        } else {
 
-                        currenTransaction.removeAll(emComum);
+                            // source server wins
 
-                        // 1: (tstamp, [1,2,3])
-                        // 1: (tstamp, [2_done,1])
-
-                    } else {
-
-                        // ganha o que tem menor id
+                            // cancelar a minha lista, fazer puts e enviar confirmacao
+                            // this.DATABASE_SET.put(sMessage.getKeyToVerify(), sMessage.getKeyValue());
+                            // currenTransaction.removeAll(emComum);
+                        }
 
                     }
                 }
+            }
+
+            if (!hasEncontredCommon) {
+
+                // se nao tem cenas em comum fazer put, confirmacao de volta, etc....
 
             }
 
