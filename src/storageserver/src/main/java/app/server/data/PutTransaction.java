@@ -17,13 +17,15 @@ public class PutTransaction implements Serializable {
     private Map<Long, Boolean> keysToPut;
     private int[] timestamp;
     private int clientPort;
+    private int TRANSACTION_ID;
 
-    public PutTransaction(List<Long> keys, int[] timestamp, int port) {
+    public PutTransaction(List<Long> keys, int[] timestamp, int port, int id) {
 
         this.keysToPut = new HashMap<>();
         keys.forEach(k -> this.keysToPut.put(k, false));
         this.timestamp = timestamp;
         this.clientPort = port;
+        this.TRANSACTION_ID = id;
     }
 
     public void setDone(Long key) {
@@ -41,6 +43,10 @@ public class PutTransaction implements Serializable {
 
     public int getClientPort() {
         return this.clientPort;
+    }
+
+    public int getTRANSACTION_ID() {
+        return TRANSACTION_ID;
     }
 
     @Override

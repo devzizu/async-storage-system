@@ -32,6 +32,7 @@ public class StorageService {
 
     // Queue of put transactions
     private Map<Integer, PutTransaction> WAITING_PUTS;
+    private Map<Integer, CMRequestPut> WAITING_CLIENT_PUTS;
 
     public StorageService(int sid, int sport, int[] clock) {
 
@@ -42,6 +43,7 @@ public class StorageService {
         this.DATABASE_SET = new HashMap<>();
         this.SERVER_ID = sid;
         this.WAITING_PUTS = new HashMap<>();
+        this.WAITING_CLIENT_PUTS = new HashMap<>();
     }
 
     public void start() {
@@ -93,7 +95,8 @@ public class StorageService {
             int[] copyTimestamp = new int[Config.nr_servers];
             System.arraycopy(LOGICAL_CLOCK, 0, copyTimestamp, 0, Config.nr_servers);
 
-            PutTransaction clientTransaction = new PutTransaction(keys, copyTimestamp, cMessage.getCLI_PORT());
+            PutTransaction clientTransaction = new PutTransaction(keys, copyTimestamp, cMessage.getCLI_PORT(),
+                    cMessage.getMESSAGE_ID());
 
             System.out.println("[<client_put>] received from " + address);
             System.out.println("[<client_put>] (" + address + ") my db = " + this.DATABASE_SET.toString());
@@ -101,11 +104,14 @@ public class StorageService {
             // add new transaction
 
             this.WAITING_PUTS.put(cMessage.getMESSAGE_ID(), clientTransaction);
+            this.WAITING_CLIENT_PUTS.put(cMessage.getMESSAGE_ID(), cMessage);
 
             System.out.println("[<client_put>] (" + address + ") inserted on waiting_puts transaction ID "
                     + cMessage.getMESSAGE_ID() + ", QUEUE = " + this.WAITING_PUTS);
 
             // atualiza relogio proprio
+
+            boolean imAlwaysTheDestination = true;
 
             for (Map.Entry<Long, byte[]> entries : cMessage.getRequestPut().entrySet()) {
 
@@ -120,17 +126,9 @@ public class StorageService {
                         + " processing key = " + keyATM + " which destination server is "
                         + (DESTINATIONID + Config.init_server_port));
 
-                if (DESTINATIONID == this.SERVER_ID) {
+                if (DESTINATIONID != this.SERVER_ID) {
 
-                    this.DATABASE_SET.put(keyATM, valueATM);
-
-                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                            + " im the destination of key = " + keyATM + " my db is now = "
-                            + this.DATABASE_SET.toString());
-
-                    clientTransaction.setDone(keyATM);
-
-                } else {
+                    imAlwaysTheDestination = false;
 
                     // calculate destination server port
 
@@ -156,7 +154,25 @@ public class StorageService {
                             + " im NOT the destination of key = " + keyATM + ", so im requesting server "
                             + DestServerPort);
 
+                } else {
+                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                            + " im the destination of key = " + keyATM + ", vou processar depois");
+
                 }
+            }
+
+            if (imAlwaysTheDestination) {
+
+                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                        + " sou sempre eu o destino, vou processar todas agora");
+
+                for (Map.Entry<Long, byte[]> entries : cMessage.getRequestPut().entrySet()) {
+                    Long keyATM = entries.getKey();
+                    byte[] valueATM = entries.getValue();
+                    this.DATABASE_SET.put(keyATM, valueATM);
+                    clientTransaction.setDone(keyATM);
+                }
+
             }
 
             if (clientTransaction.isFinished()) {
@@ -290,7 +306,7 @@ public class StorageService {
 
                             if (currenTransaction.isFinished()) {
 
-                                CMResponsePut responsePut = new CMResponsePut(sMessage.getTransactionID());
+                                CMResponsePut responsePut = new CMResponsePut(currenTransaction.getTRANSACTION_ID());
 
                                 byte[] sendBytes = null;
 
@@ -307,6 +323,47 @@ public class StorageService {
                                         "client transaction finished, vou avisar o cliente");
 
                                 // this.WAITING_PUTS.remove(entries.getKey());
+                            } else {
+
+                                // pode faltar fazer atualizacoes cujo destino sou so eu
+                                boolean leftsOnlyMe = true;
+                                for (Map.Entry<Long, Boolean> entry : currenTransaction.getKeysToPut().entrySet()) {
+
+                                    if (entry.getValue() == false) {
+                                        int DESTINATIONID = this.find_storage_service(entry.getKey());
+                                        if (DESTINATIONID != this.SERVER_ID)
+                                            leftsOnlyMe = false;
+                                    }
+                                }
+
+                                if (leftsOnlyMe) {
+
+                                    int tidCurrent = currenTransaction.getTRANSACTION_ID();
+
+                                    for (Map.Entry<Long, byte[]> entry : this.WAITING_CLIENT_PUTS.get(tidCurrent)
+                                            .getRequestPut().entrySet()) {
+
+                                        if (this.WAITING_PUTS.get(tidCurrent).getKeysToPut()
+                                                .get(entry.getKey()) == false) {
+                                            this.DATABASE_SET.put(entry.getKey(), entry.getValue());
+                                            currenTransaction.setDone(entry.getKey());
+                                        }
+                                    }
+
+                                    CMResponsePut responsePut = new CMResponsePut(tidCurrent);
+
+                                    byte[] sendBytes = null;
+
+                                    try {
+                                        sendBytes = Serialization.serialize(responsePut);
+                                    } catch (IOException e) {
+                                    }
+
+                                    // avisar o client
+                                    this.sendAsync(currenTransaction.getClientPort(), "client_response_put", sendBytes,
+                                            "client transaction finished, vou avisar o cliente");
+
+                                }
                             }
                         }
 
@@ -412,6 +469,44 @@ public class StorageService {
 
                 // remove from current transactions
                 // this.WAITING_PUTS.remove(tid);
+
+            } else {
+
+                // pode faltar fazer atualizacoes cujo destino sou so eu
+                boolean leftsOnlyMe = true;
+                for (Map.Entry<Long, Boolean> entry : tidTransaction.getKeysToPut().entrySet()) {
+
+                    if (entry.getValue() == false) {
+                        int DESTINATIONID = this.find_storage_service(entry.getKey());
+                        if (DESTINATIONID != this.SERVER_ID)
+                            leftsOnlyMe = false;
+                    }
+                }
+
+                if (leftsOnlyMe) {
+
+                    for (Map.Entry<Long, byte[]> entry : this.WAITING_CLIENT_PUTS.get(tid).getRequestPut().entrySet()) {
+
+                        if (this.WAITING_PUTS.get(tid).getKeysToPut().get(entry.getKey()) == false) {
+                            this.DATABASE_SET.put(entry.getKey(), entry.getValue());
+                            tidTransaction.setDone(entry.getKey());
+                        }
+                    }
+
+                    CMResponsePut responsePut = new CMResponsePut(tid);
+
+                    byte[] sendBytes = null;
+
+                    try {
+                        sendBytes = Serialization.serialize(responsePut);
+                    } catch (IOException e) {
+                    }
+
+                    // avisar o client
+                    this.sendAsync(tidTransaction.getClientPort(), "client_response_put", sendBytes,
+                            "client transaction finished, vou avisar o cliente");
+
+                }
             }
 
         }, this.executorService);

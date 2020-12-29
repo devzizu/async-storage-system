@@ -56,17 +56,18 @@ public class Client {
 
         if (CLIENT_ID == 0) {
 
+            mapTestPut.put((long) 0, "storage0".getBytes());
             mapTestPut.put((long) 1, "storage1".getBytes());
-            mapTestPut.put((long) 2, "storage0".getBytes());
+            mapTestPut.put((long) 2, "storage2".getBytes());
 
             resultPut = API.put(mapTestPut, 0);
 
         } else if (CLIENT_ID == 1) {
 
             mapTestPut.put((long) 1, "storage1".getBytes());
-            mapTestPut.put((long) 2, "storage0".getBytes());
+            mapTestPut.put((long) 0, "storage2".getBytes());
 
-            resultPut = API.put(mapTestPut, 1);
+            resultPut = API.put(mapTestPut, 2);
         }
 
         // CompletableFuture<Map<Long, byte[]>> resultGet = API
