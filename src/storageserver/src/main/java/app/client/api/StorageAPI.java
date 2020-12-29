@@ -43,7 +43,7 @@ public class StorageAPI {
                 .sendAsync(Address.from("localhost", Config.init_server_port + store), "client_put", messageBytes)
                 .thenRun(() -> {
 
-                    System.out.println("Mensagem PUT enviada!");
+                    System.out.println("(api) enviei pedido para a transacao: " + lastId);
 
                 }).exceptionally(t -> {
                     t.printStackTrace();

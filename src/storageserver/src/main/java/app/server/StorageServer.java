@@ -31,6 +31,9 @@ public class StorageServer {
         SERVER_PORT = Config.init_server_port + SERVER_ID;
 
         System.out.println("storage server configured to run @ port = " + SERVER_PORT);
+        System.out.println("------------------------------------------------------------------------------------");
+        System.out.println("-----------------------------STORAGE " + SERVER_ID + "------------------------------");
+        System.out.println("------------------------------------------------------------------------------------");
 
         // ---------------------------------------------------------------------------------------------------
 

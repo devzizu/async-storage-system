@@ -52,7 +52,7 @@ public class ClientService {
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            System.out.println("Recebi resposta ao put, vou processar");
+            System.out.println("(handler) recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
 
             this.FUTURE_RESPONSES.complete(responsePut);
 

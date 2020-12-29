@@ -69,7 +69,7 @@ public class StorageService {
     public void sendAsync(int port, String typeHandler, byte[] data, String print) {
 
         this.messagingService.sendAsync(Address.from("localhost", port), typeHandler, data).thenRun(() -> {
-            System.out.println(print);
+            // System.out.println(print);
         }).exceptionally(t -> {
             t.printStackTrace();
             return null;
@@ -95,14 +95,15 @@ public class StorageService {
 
             PutTransaction clientTransaction = new PutTransaction(keys, copyTimestamp, cMessage.getCLI_PORT());
 
-            System.out.println("[<client_put>] Received <client_put> from " + address);
+            System.out.println("[<client_put>] received from " + address);
             System.out.println("[<client_put>] (" + address + ") my db = " + this.DATABASE_SET.toString());
 
             // add new transaction
 
             this.WAITING_PUTS.put(cMessage.getMESSAGE_ID(), clientTransaction);
 
-            System.out.println("[<client_put>] (" + address + ") put on waiting_puts = " + this.WAITING_PUTS);
+            System.out.println("[<client_put>] (" + address + ") inserted on waiting_puts transaction ID "
+                    + cMessage.getMESSAGE_ID() + ", QUEUE = " + this.WAITING_PUTS);
 
             // atualiza relogio proprio
 
@@ -115,15 +116,17 @@ public class StorageService {
 
                 int DESTINATIONID = this.find_storage_service(keyATM);
 
-                System.out.println("[<client_put>] (" + address + ") processing key = " + keyATM
-                        + " which destination server is " + (DESTINATIONID + Config.init_server_port));
+                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                        + " processing key = " + keyATM + " which destination server is "
+                        + (DESTINATIONID + Config.init_server_port));
 
                 if (DESTINATIONID == this.SERVER_ID) {
 
                     this.DATABASE_SET.put(keyATM, valueATM);
 
-                    System.out.println("[<client_put>] (" + address + ") im the destination of key = " + keyATM
-                            + " my db is now " + this.DATABASE_SET.toString());
+                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                            + " im the destination of key = " + keyATM + " my db is now = "
+                            + this.DATABASE_SET.toString());
 
                     clientTransaction.setDone(keyATM);
 
@@ -149,16 +152,21 @@ public class StorageService {
                     String toPrint = "Sent transaction request for key " + keyATM + " to server port " + DestServerPort;
                     this.sendAsync(DestServerPort, "server_request_put", sendBytes, toPrint);
 
-                    System.out.println("[<client_put>] (" + address + ") im NOT the destination of key = " + keyATM
-                            + ", so im requesting server " + DestServerPort);
+                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                            + " im NOT the destination of key = " + keyATM + ", so im requesting server "
+                            + DestServerPort);
 
                 }
             }
 
             if (clientTransaction.isFinished()) {
 
-                System.out.println(
-                        "[<client_put>] (" + address + ") client transaction finished, sending response to client!");
+                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                        + "  transaction finished, sending response to client!");
+
+                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
+                        + "  transaction finished, sending response to client!, MY DB = "
+                        + this.DATABASE_SET.toString());
 
                 CMResponsePut responsePut = new CMResponsePut(cMessage.getMESSAGE_ID());
 
@@ -218,7 +226,9 @@ public class StorageService {
             int fromID = sMessage.getFromID();
 
             System.out.println("[<server_request_put>] (" + address + ") received request put from server "
-                    + (Config.init_server_port + fromID));
+                    + (Config.init_server_port + fromID) + " of transaction: key = " + sMessage.getKeyToVerify()
+                    + ", keysToDo = " + transactionReceived.getKeysToPut() + " tstamp = "
+                    + transactionReceived.getTimestamp());
 
             for (Map.Entry<Integer, PutTransaction> entries : this.WAITING_PUTS.entrySet()) {
 
@@ -255,7 +265,8 @@ public class StorageService {
                                     + ") ganhei conflito, a mandar a lista em comum " + emComumList + " para o server "
                                     + destPort);
 
-                            SMResponsePut responsePut = new SMResponsePut(emComumList, sMessage.getTransactionID());
+                            SMResponsePut responsePut = new SMResponsePut(emComumList, sMessage.getTransactionID(),
+                                    null);
 
                             byte[] sendBytes = null;
 
@@ -294,6 +305,8 @@ public class StorageService {
                                 // avisar o client
                                 this.sendAsync(currenTransaction.getClientPort(), "client_response_put", sendBytes,
                                         "client transaction finished, vou avisar o cliente");
+
+                                // this.WAITING_PUTS.remove(entries.getKey());
                             }
                         }
 
@@ -317,7 +330,8 @@ public class StorageService {
 
                 // se nao tem cenas em comum fazer put, confirmacao de volta, etc....
 
-                SMResponsePut responsePut = new SMResponsePut(new ArrayList<>(), sMessage.getTransactionID());
+                SMResponsePut responsePut = new SMResponsePut(new ArrayList<>(), sMessage.getTransactionID(),
+                        sMessage.getKeyToVerify());
 
                 byte[] sendBytes = null;
 
@@ -334,9 +348,6 @@ public class StorageService {
             this.LOGICAL_CLOCK[this.SERVER_ID]++;
 
             this.send_update_clock_all_servers();
-
-            System.out.println("client: " + transactionReceived.getClientPort() + " end of request put: "
-                    + this.DATABASE_SET.toString());
 
         }, this.executorService);
 
@@ -364,14 +375,27 @@ public class StorageService {
             PutTransaction tidTransaction = this.WAITING_PUTS.get(tid);
 
             System.out.println("[<server_response_put>] (" + address + ") recebi resposta ao server put, com lista "
-                    + tidTransaction.getKeysToPut() + " vou remover");
+                    + responseMessage.getKeysToAbort() + " vou remover");
 
-            tidTransaction.removeAll(responseMessage.getKeysToAbort());
+            List<Long> keysList = responseMessage.getKeysToAbort();
+
+            if (keysList.isEmpty()) {
+
+                tidTransaction.setDone(responseMessage.getKeyUpdated());
+            } else {
+
+                tidTransaction.removeAll(responseMessage.getKeysToAbort());
+            }
+
+            System.out.println("[<server_response_put>] (" + address + ") transacao apos remover "
+                    + tidTransaction.getKeysToPut());
 
             if (tidTransaction.isFinished()) {
 
                 System.out.println(
                         "[<server_response_put>] (" + address + ") acabou transacao " + tid + " vou avisar o cliente");
+                System.out.println("[<server_response_put>] (" + address + ") apos transacao " + tid + " my DB = "
+                        + this.DATABASE_SET.toString());
 
                 CMResponsePut responsePut = new CMResponsePut(tid);
 
@@ -385,6 +409,9 @@ public class StorageService {
                 // avisar o client
                 this.sendAsync(tidTransaction.getClientPort(), "client_response_put", sendBytes,
                         "client transaction finished, vou avisar o cliente");
+
+                // remove from current transactions
+                // this.WAITING_PUTS.remove(tid);
             }
 
         }, this.executorService);

@@ -56,13 +56,15 @@ public class Client {
 
         if (CLIENT_ID == 0) {
 
-            mapTestPut.put((long) 0, "store1".getBytes());
+            mapTestPut.put((long) 1, "storage1".getBytes());
+            mapTestPut.put((long) 2, "storage0".getBytes());
 
             resultPut = API.put(mapTestPut, 0);
 
-        } else {
+        } else if (CLIENT_ID == 1) {
 
-            mapTestPut.put((long) 0, "store0".getBytes());
+            mapTestPut.put((long) 1, "storage1".getBytes());
+            mapTestPut.put((long) 2, "storage0".getBytes());
 
             resultPut = API.put(mapTestPut, 1);
         }
@@ -71,7 +73,7 @@ public class Client {
         // .get(mapTestPut.keySet().stream().collect(Collectors.toList()));
 
         resultPut.thenAccept(action -> {
-            System.out.println("Received response put!");
+            System.out.println("(cliente) Recebi confirmação de que terminou, OK!");
         });
 
         // resultGet.thenAccept(action -> {
