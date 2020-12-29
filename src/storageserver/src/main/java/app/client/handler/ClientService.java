@@ -8,6 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import app.Config;
 import app.Serialization;
 import app.client.FutureResponses;
+import app.data.CMResponseGet;
 import app.data.CMResponsePut;
 import io.atomix.cluster.messaging.MessagingConfig;
 import io.atomix.cluster.messaging.impl.NettyMessagingService;
@@ -38,10 +39,11 @@ public class ClientService {
 
     public void register_client_handlers() {
 
-        this.register_client_response();
+        this.register_client_response_put();
+        this.register_client_response_get();
     }
 
-    private void register_client_response() {
+    public void register_client_response_put() {
 
         this.messagingService.registerHandler("client_response_put", (address, messageBytes) -> {
 
@@ -52,9 +54,27 @@ public class ClientService {
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            System.out.println("(handler) recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
+            System.out.println("(handler) PUT recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
 
-            this.FUTURE_RESPONSES.complete(responsePut);
+            this.FUTURE_RESPONSES.completePut(responsePut);
+
+        }, this.executorService);
+    }
+
+    public void register_client_response_get() {
+
+        this.messagingService.registerHandler("client_response_get", (address, messageBytes) -> {
+
+            CMResponseGet responseGet = null;
+
+            try {
+                responseGet = (CMResponseGet) Serialization.deserialize(messageBytes);
+            } catch (ClassNotFoundException | IOException e) {
+            }
+
+            System.out.println("(handler) GET recebi resposta para a transacao: " + responseGet.getMESSAGE_ID());
+
+            this.FUTURE_RESPONSES.completeGet(responseGet);
 
         }, this.executorService);
     }

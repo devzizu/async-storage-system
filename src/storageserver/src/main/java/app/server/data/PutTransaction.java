@@ -3,11 +3,8 @@ package app.server.data;
 
 import java.io.Serializable;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 public class PutTransaction implements Serializable {
 
@@ -28,7 +25,7 @@ public class PutTransaction implements Serializable {
         this.TRANSACTION_ID = id;
     }
 
-    public void setDone(Long key) {
+    public synchronized void setDone(Long key) {
 
         this.keysToPut.replace(key, true);
     }
@@ -51,26 +48,10 @@ public class PutTransaction implements Serializable {
 
     @Override
     public String toString() {
-        return "{" + " keysToPut='" + getKeysToPut() + "'" + ", timestamp='" + getTimestamp() + "'" + "}";
+        return "{" + " keysToPut='" + getKeysToPut() + "'" + ", timestamp='" + getTimestamp() + "}";
     }
 
-    public HashSet<Long> getInCommon(PutTransaction received) {
-
-        List<Long> received_keys = received.getKeysToPut().keySet().stream().collect(Collectors.toList());
-        List<Long> my_keys = this.keysToPut.keySet().stream().collect(Collectors.toList());
-
-        Set<Long> emComum = received_keys.stream().distinct().filter(my_keys::contains).collect(Collectors.toSet());
-
-        return emComum.stream().collect(Collectors.toCollection(HashSet::new));
-    }
-
-    public void removeAll(List<Long> list) {
-
-        for (Long l : list)
-            this.keysToPut.remove(l);
-    }
-
-    public boolean isFinished() {
+    public synchronized boolean isFinished() {
 
         return this.keysToPut.entrySet().stream().filter(e -> e.getValue() == false).count() == 0;
     }

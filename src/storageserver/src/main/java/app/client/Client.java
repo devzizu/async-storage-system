@@ -1,7 +1,9 @@
 
 package app.client;
 
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -50,35 +52,38 @@ public class Client {
 
         // ---------------------------------------------------------------------------------------------------
 
-        Map<Long, byte[]> mapTestPut = new HashMap<Long, byte[]>();
-
-        CompletableFuture<Void> resultPut = null;
-
         if (CLIENT_ID == 0) {
 
-            mapTestPut.put((long) 0, "storage0".getBytes());
-            mapTestPut.put((long) 1, "storage1".getBytes());
-            mapTestPut.put((long) 2, "storage2".getBytes());
+            CompletableFuture<Void> resultPut = null;
+
+            Map<Long, byte[]> mapTestPut = new HashMap<>();
+            mapTestPut.put((long) 0, "chave0".getBytes());
+            mapTestPut.put((long) 2, "chave2".getBytes());
+            mapTestPut.put((long) 1, "chave1".getBytes());
+            mapTestPut.put((long) 3, "chave3".getBytes());
 
             resultPut = API.put(mapTestPut, 0);
 
+            resultPut.thenAccept(voidValue -> {
+                System.out.println("(cliente) Recebi confirmação PUT de que terminou, OK!");
+            });
+
         } else if (CLIENT_ID == 1) {
 
-            mapTestPut.put((long) 1, "storage1".getBytes());
-            mapTestPut.put((long) 0, "storage2".getBytes());
+            Collection<Long> keysToGet = new HashSet<Long>();
+            keysToGet.add((long) 0);
+            keysToGet.add((long) 2);
+            keysToGet.add((long) 1);
+            keysToGet.add((long) 3);
 
-            resultPut = API.put(mapTestPut, 2);
+            CompletableFuture<Map<Long, byte[]>> resultGet = API.get(keysToGet, 1);
+
+            resultGet.thenAccept(map -> {
+                System.out.println("(cliente) Recebi confirmação GET de que terminou, OK!");
+                System.out.println("Result map:");
+                map.entrySet().forEach(
+                        e -> System.out.println("key: " + e.getKey() + ", val: " + (new String(e.getValue()))));
+            });
         }
-
-        // CompletableFuture<Map<Long, byte[]>> resultGet = API
-        // .get(mapTestPut.keySet().stream().collect(Collectors.toList()));
-
-        resultPut.thenAccept(action -> {
-            System.out.println("(cliente) Recebi confirmação de que terminou, OK!");
-        });
-
-        // resultGet.thenAccept(action -> {
-        // System.out.println("Received response get!");
-        // });
     }
 }

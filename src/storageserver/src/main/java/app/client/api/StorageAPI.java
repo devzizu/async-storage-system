@@ -9,6 +9,7 @@ import app.Config;
 import app.Serialization;
 import app.client.FutureResponses;
 import app.client.handler.ClientService;
+import app.data.CMRequestGet;
 import app.data.CMRequestPut;
 import io.atomix.utils.net.Address;
 
@@ -43,7 +44,7 @@ public class StorageAPI {
                 .sendAsync(Address.from("localhost", Config.init_server_port + store), "client_put", messageBytes)
                 .thenRun(() -> {
 
-                    System.out.println("(api) enviei pedido para a transacao: " + lastId);
+                    System.out.println("(api) enviei pedido PUT para a transacao: " + lastId);
 
                 }).exceptionally(t -> {
                     t.printStackTrace();
@@ -57,37 +58,38 @@ public class StorageAPI {
         return resultPut;
     }
 
-    public CompletableFuture<Map<Long, byte[]>> get(Collection<Long> keys) {
-        /*
-         * FutureResponses futureR = this.clientService.getFutureResponses(); int lastId
-         * = futureR.getId();
-         * 
-         * CMRequestGet clMessage = new CMRequestGet(keys, lastId);
-         * 
-         * byte[] messageBytes = null;
-         * 
-         * try {
-         * 
-         * messageBytes = Serialization.serialize(clMessage);
-         * 
-         * } catch (Exception e) {
-         * 
-         * System.out.println("error serializing in get method..."); }
-         * 
-         * this.clientService.gNettyMessagingService()
-         * .sendAsync(Address.from("localhost", Config.init_server_port), "client_get",
-         * messageBytes) .thenRun(() -> {
-         * 
-         * System.out.println("Mensagem GET enviada!");
-         * 
-         * }).exceptionally(t -> { t.printStackTrace(); return null; });
-         * 
-         * CompletableFuture<Map<Long, byte[]>> resultGet = new CompletableFuture<>();
-         * 
-         * futureR.addPendingRequest("GET", resultGet);
-         * 
-         * return resultGet;
-         */
-        return null;
+    public CompletableFuture<Map<Long, byte[]>> get(Collection<Long> keys, int store) {
+
+        FutureResponses futureR = this.clientService.getFutureResponses();
+        int lastId = futureR.getId();
+
+        CMRequestGet requestGet = new CMRequestGet(keys, lastId, clientService.getClientPort());
+        byte[] messageBytes = null;
+
+        try {
+
+            messageBytes = Serialization.serialize(requestGet);
+
+        } catch (Exception e) {
+
+            System.out.println("error serializing in get method...");
+        }
+
+        this.clientService.gNettyMessagingService()
+                .sendAsync(Address.from("localhost", Config.init_server_port + store), "client_get", messageBytes)
+                .thenRun(() -> {
+
+                    System.out.println("(api) enviei pedido GET para a transacao: " + lastId);
+
+                }).exceptionally(t -> {
+                    t.printStackTrace();
+                    return null;
+                });
+
+        CompletableFuture<Map<Long, byte[]>> resultGet = new CompletableFuture<>();
+
+        futureR.addPendingGetRequest(resultGet);
+
+        return resultGet;
     }
 }

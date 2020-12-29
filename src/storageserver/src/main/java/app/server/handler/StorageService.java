@@ -1,23 +1,28 @@
 package app.server.handler;
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 import app.Config;
 import app.Serialization;
+import app.data.CMRequestGet;
 import app.data.CMRequestPut;
+import app.data.CMResponseGet;
 import app.data.CMResponsePut;
+import app.server.data.GetTransaction;
 import app.server.data.PutTransaction;
-import app.server.data.SMRequestPut;
-import app.server.data.SMResponsePut;
+import app.server.data.SMRequest;
+import app.server.data.SMResponse;
 import app.server.data.SMUpdateClock;
+import app.server.data.StorageValue;
 import io.atomix.cluster.messaging.MessagingConfig;
 import io.atomix.cluster.messaging.impl.NettyMessagingService;
 import io.atomix.utils.net.Address;
@@ -26,24 +31,29 @@ public class StorageService {
 
     private ScheduledExecutorService executorService;
     private NettyMessagingService messagingService;
-    private Map<Long, byte[]> DATABASE_SET;
+    private Map<Long, StorageValue> DATABASE_SET;
     private int[] LOGICAL_CLOCK;
     private int SERVER_ID;
 
-    // Queue of put transactions
-    private Map<Integer, PutTransaction> WAITING_PUTS;
-    private Map<Integer, CMRequestPut> WAITING_CLIENT_PUTS;
+    static ReentrantLock lock = new ReentrantLock();
+    static boolean canEnter = true;
+
+    private ConcurrentHashMap<Integer, PutTransaction> WAITING_PUTS;
+    private ConcurrentHashMap<Integer, GetTransaction> WAITING_GETS;
 
     public StorageService(int sid, int sport, int[] clock) {
 
         this.executorService = Executors.newScheduledThreadPool(Config.server_thread_pool_size);
         this.messagingService = new NettyMessagingService("serverms_" + sid, Address.from(sport),
                 new MessagingConfig());
-        this.LOGICAL_CLOCK = clock;
-        this.DATABASE_SET = new HashMap<>();
+
         this.SERVER_ID = sid;
-        this.WAITING_PUTS = new HashMap<>();
-        this.WAITING_CLIENT_PUTS = new HashMap<>();
+        this.LOGICAL_CLOCK = clock;
+
+        this.DATABASE_SET = new HashMap<>();
+
+        this.WAITING_PUTS = new ConcurrentHashMap<>();
+        this.WAITING_GETS = new ConcurrentHashMap<>();
     }
 
     public void start() {
@@ -71,7 +81,7 @@ public class StorageService {
     public void sendAsync(int port, String typeHandler, byte[] data, String print) {
 
         this.messagingService.sendAsync(Address.from("localhost", port), typeHandler, data).thenRun(() -> {
-            // System.out.println(print);
+            System.out.println(print);
         }).exceptionally(t -> {
             t.printStackTrace();
             return null;
@@ -82,62 +92,94 @@ public class StorageService {
 
         this.messagingService.registerHandler("client_put", (address, messageBytes) -> {
 
-            CMRequestPut cMessage = null;
+            CMRequestPut cmreqputMessage = null;
 
             try {
-                cMessage = (CMRequestPut) Serialization.deserialize(messageBytes);
+                cmreqputMessage = (CMRequestPut) Serialization.deserialize(messageBytes);
             } catch (ClassNotFoundException | IOException e) {
             }
 
             // create client put transaction
 
-            List<Long> keys = cMessage.getRequestPut().keySet().stream().collect(Collectors.toList());
             int[] copyTimestamp = new int[Config.nr_servers];
             System.arraycopy(LOGICAL_CLOCK, 0, copyTimestamp, 0, Config.nr_servers);
+            int requestID = cmreqputMessage.getMESSAGE_ID();
 
-            PutTransaction clientTransaction = new PutTransaction(keys, copyTimestamp, cMessage.getCLI_PORT(),
-                    cMessage.getMESSAGE_ID());
+            List<Long> keysToUpdate = cmreqputMessage.getRequestPut().keySet().stream().collect(Collectors.toList());
+            PutTransaction transaction = new PutTransaction(keysToUpdate, copyTimestamp, cmreqputMessage.getCLI_PORT(),
+                    requestID);
 
-            System.out.println("[<client_put>] received from " + address);
-            System.out.println("[<client_put>] (" + address + ") my db = " + this.DATABASE_SET.toString());
+            System.out.println("created PUT transaction = " + transaction.toString());
 
-            // add new transaction
+            this.WAITING_PUTS.put(requestID, transaction);
 
-            this.WAITING_PUTS.put(cMessage.getMESSAGE_ID(), clientTransaction);
-            this.WAITING_CLIENT_PUTS.put(cMessage.getMESSAGE_ID(), cMessage);
-
-            System.out.println("[<client_put>] (" + address + ") inserted on waiting_puts transaction ID "
-                    + cMessage.getMESSAGE_ID() + ", QUEUE = " + this.WAITING_PUTS);
-
-            // atualiza relogio proprio
+            System.out.println("recebi pedido do cliente " + address + " para as keys = " + keysToUpdate);
 
             boolean imAlwaysTheDestination = true;
 
-            for (Map.Entry<Long, byte[]> entries : cMessage.getRequestPut().entrySet()) {
+            for (Map.Entry<Long, byte[]> pedidoEntry : cmreqputMessage.getRequestPut().entrySet()) {
 
-                Long keyATM = entries.getKey();
-                byte[] valueATM = entries.getValue();
+                Long keyToProcess = pedidoEntry.getKey();
+                byte[] keyData = pedidoEntry.getValue();
+                StorageValue svData = new StorageValue(keyData, copyTimestamp, this.SERVER_ID);
 
-                // calculate destination server id
+                int keyDestinationServerID = this.find_storage_service(keyToProcess);
 
-                int DESTINATIONID = this.find_storage_service(keyATM);
+                if (keyDestinationServerID == this.SERVER_ID) {
 
-                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                        + " processing key = " + keyATM + " which destination server is "
-                        + (DESTINATIONID + Config.init_server_port));
+                    System.out.println("a processar key = " + keyToProcess + " (sou o destino), timestamp = "
+                            + printArray(copyTimestamp));
 
-                if (DESTINATIONID != this.SERVER_ID) {
+                    transaction.setDone(keyToProcess);
+
+                    if (this.DATABASE_SET.containsKey(keyToProcess)) {
+
+                        StorageValue lValue = this.DATABASE_SET.get(keyToProcess);
+
+                        if (lValue.getTimeStamp()[this.SERVER_ID] == svData.getTimeStamp()[this.SERVER_ID]) {
+
+                            // conflito detetado
+
+                            if (lValue.getServerWhichUpdate() < this.SERVER_ID) {
+
+                                // destination server wins
+                                System.out.println("conflito com a chave " + keyToProcess + ", NAO VAI ATUALIZAR");
+
+                            } else {
+
+                                // source server wins
+                                System.out.println("conflito com a chave " + keyToProcess + ", VAI ATUALIZAR");
+
+                                lValue.setServerWhichUpdate(svData.getServerWhichUpdate());
+                                this.DATABASE_SET.replace(keyToProcess, svData);
+                            }
+
+                        } else {
+
+                            System.out.println(
+                                    "NAO ha conflito com a chave " + keyToProcess + ", vou dar replace/atualiar");
+
+                            this.DATABASE_SET.replace(keyToProcess, svData);
+                        }
+
+                    } else {
+
+                        System.out.println("NAO existia a chave " + keyToProcess + ", vou inserir");
+
+                        svData.setServerWhichUpdate(this.SERVER_ID);
+                        this.DATABASE_SET.put(keyToProcess, svData);
+                    }
+
+                    System.out.println("MY DATABASE = " + this.DATABASE_SET.toString());
+
+                } else {
+
+                    System.out.println("a processar key = " + keyToProcess + " (NAO sou o destino), timestamp = "
+                            + printArray(copyTimestamp));
 
                     imAlwaysTheDestination = false;
 
-                    // calculate destination server port
-
-                    int DestServerPort = Config.init_server_port + DESTINATIONID;
-
-                    // creating request message
-
-                    SMRequestPut sendRequest = new SMRequestPut(clientTransaction, keyATM, valueATM, this.SERVER_ID,
-                            cMessage.getMESSAGE_ID());
+                    SMRequest sendRequest = new SMRequest(keyToProcess, svData, this.SERVER_ID, requestID, "put");
 
                     byte[] sendBytes = null;
 
@@ -146,45 +188,17 @@ public class StorageService {
                     } catch (IOException e) {
                     }
 
-                    // send request to dest server
-                    String toPrint = "Sent transaction request for key " + keyATM + " to server port " + DestServerPort;
-                    this.sendAsync(DestServerPort, "server_request_put", sendBytes, toPrint);
-
-                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                            + " im NOT the destination of key = " + keyATM + ", so im requesting server "
-                            + DestServerPort);
-
-                } else {
-                    System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                            + " im the destination of key = " + keyATM + ", vou processar depois");
-
+                    int toServer = Config.init_server_port + keyDestinationServerID;
+                    String toPrint = "requesting server " + toServer + " to put key " + keyToProcess;
+                    this.sendAsync(toServer, "server_request_put", sendBytes, toPrint);
                 }
             }
 
             if (imAlwaysTheDestination) {
 
-                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                        + " sou sempre eu o destino, vou processar todas agora");
+                System.out.println("fui sempre o destino, tudo acabou, a responder ao cliente");
 
-                for (Map.Entry<Long, byte[]> entries : cMessage.getRequestPut().entrySet()) {
-                    Long keyATM = entries.getKey();
-                    byte[] valueATM = entries.getValue();
-                    this.DATABASE_SET.put(keyATM, valueATM);
-                    clientTransaction.setDone(keyATM);
-                }
-
-            }
-
-            if (clientTransaction.isFinished()) {
-
-                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                        + "  transaction finished, sending response to client!");
-
-                System.out.println("[<client_put>] (" + address + ") TRANSACTION: " + cMessage.getMESSAGE_ID()
-                        + "  transaction finished, sending response to client!, MY DB = "
-                        + this.DATABASE_SET.toString());
-
-                CMResponsePut responsePut = new CMResponsePut(cMessage.getMESSAGE_ID());
+                CMResponsePut responsePut = new CMResponsePut(requestID);
 
                 byte[] sendBytes = null;
 
@@ -193,9 +207,12 @@ public class StorageService {
                 } catch (IOException e) {
                 }
 
-                // avisar o client
-                this.sendAsync(clientTransaction.getClientPort(), "client_response_put", sendBytes,
-                        "client transaction finished, vou avisar o cliente");
+                int cPort = transaction.getClientPort();
+                String toPrint = "client " + cPort + " PUT transaction finished, vou avisar o cliente";
+
+                this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
+
+                this.WAITING_PUTS.remove(requestID);
             }
 
         }, this.executorService);
@@ -204,207 +221,157 @@ public class StorageService {
     private void register_client_get() {
 
         this.messagingService.registerHandler("client_get", (address, messageBytes) -> {
-            /*
-             * ClientMessage cMessage = null;
-             * 
-             * try { cMessage = Serialization.deserialize(messageBytes); } catch
-             * (ClassNotFoundException | IOException e) { }
-             * 
-             * System.out.println("Received client get:");
-             * System.out.println(cMessage.toString());
-             * 
-             * this.messagingService.sendAsync(address, "client_response",
-             * messageBytes).thenRun(() -> {
-             * 
-             * System.out.println("Mensagem Response GET enviada!");
-             * 
-             * }).exceptionally(t -> { t.printStackTrace(); return null; });
-             */
+
+            CMRequestGet cmreqgetMessage = null;
+
+            try {
+                cmreqgetMessage = (CMRequestGet) Serialization.deserialize(messageBytes);
+            } catch (ClassNotFoundException | IOException e) {
+            }
+
+            Collection<Long> keys = cmreqgetMessage.getKeysToRequest();
+            int clientPort = cmreqgetMessage.getCLI_PORT();
+            int transactionID = cmreqgetMessage.getMESSAGE_ID();
+            GetTransaction transaction = new GetTransaction(clientPort, transactionID, keys);
+
+            System.out.println("created GET transaction = " + transaction.toString());
+
+            this.WAITING_GETS.put(transactionID, transaction);
+
+            boolean isAlwaysForMe = true;
+
+            for (Long keyToGet : keys) {
+
+                int keyDestinationServerID = this.find_storage_service(keyToGet);
+
+                if (keyDestinationServerID == this.SERVER_ID) {
+
+                    if (this.DATABASE_SET.containsKey(keyToGet)) {
+
+                        StorageValue value = this.DATABASE_SET.get(keyToGet);
+
+                        transaction.setDone(keyToGet, value.getData());
+                        transaction.incrementDone();
+
+                    } else {
+
+                        transaction.removeUnexisting(keyToGet);
+                    }
+
+                } else {
+
+                    isAlwaysForMe = false;
+
+                    SMRequest smreqMessage = new SMRequest(keyToGet, this.SERVER_ID, transactionID, "get");
+
+                    byte[] sendBytes = null;
+
+                    try {
+                        sendBytes = Serialization.serialize(smreqMessage);
+                    } catch (IOException e) {
+                    }
+
+                    int toServer = Config.init_server_port + keyDestinationServerID;
+                    String toPrint = "requesting server " + toServer + " to get key " + keyToGet;
+                    this.sendAsync(toServer, "server_request_get", sendBytes, toPrint);
+
+                }
+            }
+
+            if (isAlwaysForMe && transaction.isFinished()) {
+
+                Map<Long, byte[]> resultGet = transaction.getPreparedGets();
+                CMResponseGet responseGet = new CMResponseGet(transactionID, resultGet);
+
+                byte[] sendBytes = null;
+
+                try {
+                    sendBytes = Serialization.serialize(responseGet);
+                } catch (IOException e) {
+                }
+
+                String toPrint = "responding to client " + clientPort + " GET transaction " + transactionID;
+                this.sendAsync(clientPort, "client_response_get", sendBytes, toPrint);
+            }
+
         }, this.executorService);
+
     }
 
     private void register_server_request_put() {
 
         this.messagingService.registerHandler("server_request_put", (address, messageBytes) -> {
 
-            // FAZER O CONDITION_VERIFIER
-
-            SMRequestPut sMessage = null;
+            SMRequest smreqputMessage = null;
             try {
-                sMessage = (SMRequestPut) Serialization.deserialize(messageBytes);
+                smreqputMessage = (SMRequest) Serialization.deserialize(messageBytes);
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            PutTransaction transactionReceived = sMessage.getTransaction();
+            Long keyRequest = smreqputMessage.getKeyToVerify();
 
-            boolean hasEncontredCommon = false;
-            boolean lostForID = false;
-            int fromID = sMessage.getFromID();
+            StorageValue requestedValue = smreqputMessage.getKeyValue();
+            StorageValue lastValue = this.DATABASE_SET.get(keyRequest);
 
-            System.out.println("[<server_request_put>] (" + address + ") received request put from server "
-                    + (Config.init_server_port + fromID) + " of transaction: key = " + sMessage.getKeyToVerify()
-                    + ", keysToDo = " + transactionReceived.getKeysToPut() + " tstamp = "
-                    + transactionReceived.getTimestamp());
+            System.out.println("recebi pedido do servidor = " + address + " para processar " + keyRequest
+                    + " com timestamp = " + printArray(requestedValue.getTimeStamp()));
 
-            for (Map.Entry<Integer, PutTransaction> entries : this.WAITING_PUTS.entrySet()) {
+            boolean wasUpdated = true;
 
-                PutTransaction currenTransaction = entries.getValue();
+            if (this.DATABASE_SET.containsKey(keyRequest)) {
 
-                HashSet<Long> emComum = transactionReceived.getInCommon(currenTransaction);
-                List<Long> emComumList = emComum.stream().collect(Collectors.toList());
+                if (lastValue.getTimeStamp()[this.SERVER_ID] == requestedValue.getTimeStamp()[this.SERVER_ID]) {
 
-                System.out.println("[<server_request_put>] (" + address + ") a processar transacao com chaves = "
-                        + currenTransaction.getKeysToPut() + ", com emComum = " + emComumList);
+                    // conflito detetado
 
-                // confito -> comparar relogios
-                if (emComum.contains(sMessage.getKeyToVerify())) {
+                    if (lastValue.getServerWhichUpdate() < smreqputMessage.getFromID()) {
 
-                    // encontrou cenas em comum
-                    hasEncontredCommon = true;
+                        // destination server wins
+                        System.out.println("conflito com a chave " + keyRequest + ", NÃO VAI ATUALIZAR");
 
-                    System.out.println("[<server_request_put>] (" + address + ") chave em comum key = "
-                            + sMessage.getKeyToVerify());
+                        wasUpdated = false;
 
-                    // conflit of timestamps, wins the least id
-                    if (currenTransaction.getTimestamp()[this.SERVER_ID] == transactionReceived
-                            .getTimestamp()[this.SERVER_ID]) {
+                    } else {
 
-                        System.out.println("[<server_request_put>] (" + address + ") conflito detetado");
+                        // source server wins
+                        System.out.println("conflito com a chave " + keyRequest + ", VAI ATUALIZAR");
 
-                        if (this.SERVER_ID < sMessage.getFromID()) {
+                        wasUpdated = true;
 
-                            // destination server wins
-                            // enviar lista em comum para cancelar
-                            int destPort = Config.init_server_port + fromID;
-
-                            System.out.println("[<server_request_put>] (" + address
-                                    + ") ganhei conflito, a mandar a lista em comum " + emComumList + " para o server "
-                                    + destPort);
-
-                            SMResponsePut responsePut = new SMResponsePut(emComumList, sMessage.getTransactionID(),
-                                    null);
-
-                            byte[] sendBytes = null;
-
-                            try {
-                                sendBytes = Serialization.serialize(responsePut);
-                            } catch (IOException e) {
-                            }
-
-                            String toPrint = "Response to transaction id " + responsePut.getTRANSACTION_ID()
-                                    + " from server id " + fromID;
-                            this.sendAsync(destPort, "server_response_put", sendBytes, toPrint);
-
-                        } else {
-
-                            // source server wins
-                            lostForID = true;
-
-                            currenTransaction.removeAll(emComumList);
-
-                            System.out.println("[<server_request_put>] (" + address + ") perdi conflito");
-
-                            if (currenTransaction.isFinished()) {
-
-                                CMResponsePut responsePut = new CMResponsePut(currenTransaction.getTRANSACTION_ID());
-
-                                byte[] sendBytes = null;
-
-                                try {
-                                    sendBytes = Serialization.serialize(responsePut);
-                                } catch (IOException e) {
-                                }
-
-                                System.out.println("[<server_request_put>] (" + address + ") transacao "
-                                        + sMessage.getTransactionID() + " terminou, a avisar o cliente");
-
-                                // avisar o client
-                                this.sendAsync(currenTransaction.getClientPort(), "client_response_put", sendBytes,
-                                        "client transaction finished, vou avisar o cliente");
-
-                                // this.WAITING_PUTS.remove(entries.getKey());
-                            } else {
-
-                                // pode faltar fazer atualizacoes cujo destino sou so eu
-                                boolean leftsOnlyMe = true;
-                                for (Map.Entry<Long, Boolean> entry : currenTransaction.getKeysToPut().entrySet()) {
-
-                                    if (entry.getValue() == false) {
-                                        int DESTINATIONID = this.find_storage_service(entry.getKey());
-                                        if (DESTINATIONID != this.SERVER_ID)
-                                            leftsOnlyMe = false;
-                                    }
-                                }
-
-                                if (leftsOnlyMe) {
-
-                                    int tidCurrent = currenTransaction.getTRANSACTION_ID();
-
-                                    for (Map.Entry<Long, byte[]> entry : this.WAITING_CLIENT_PUTS.get(tidCurrent)
-                                            .getRequestPut().entrySet()) {
-
-                                        if (this.WAITING_PUTS.get(tidCurrent).getKeysToPut()
-                                                .get(entry.getKey()) == false) {
-                                            this.DATABASE_SET.put(entry.getKey(), entry.getValue());
-                                            currenTransaction.setDone(entry.getKey());
-                                        }
-                                    }
-
-                                    CMResponsePut responsePut = new CMResponsePut(tidCurrent);
-
-                                    byte[] sendBytes = null;
-
-                                    try {
-                                        sendBytes = Serialization.serialize(responsePut);
-                                    } catch (IOException e) {
-                                    }
-
-                                    // avisar o client
-                                    this.sendAsync(currenTransaction.getClientPort(), "client_response_put", sendBytes,
-                                            "client transaction finished, vou avisar o cliente");
-
-                                }
-                            }
-                        }
-
+                        requestedValue.setServerWhichUpdate(smreqputMessage.getFromID());
+                        this.DATABASE_SET.replace(keyRequest, requestedValue);
                     }
 
-                }
-            }
+                } else {
 
-            if (!hasEncontredCommon || lostForID) {
+                    System.out.println("NAO ha conflito com a chave " + keyRequest + ", vou dar replace/atualiar");
 
-                this.DATABASE_SET.put(sMessage.getKeyToVerify(), sMessage.getKeyValue());
-
-                if (lostForID)
-                    System.out.println("[<server_request_put>] (" + address
-                            + ") perdi por id em alguma, my db after update " + this.DATABASE_SET.toString()
-                            + ", e enviei a lista vazia para " + (Config.init_server_port + fromID));
-                else
-                    System.out.println("[<server_request_put>] (" + address
-                            + ") nao tem em comum nada, my db after update " + this.DATABASE_SET.toString()
-                            + ", e enviei a lista vazia para " + (Config.init_server_port + fromID));
-
-                // se nao tem cenas em comum fazer put, confirmacao de volta, etc....
-
-                SMResponsePut responsePut = new SMResponsePut(new ArrayList<>(), sMessage.getTransactionID(),
-                        sMessage.getKeyToVerify());
-
-                byte[] sendBytes = null;
-
-                try {
-                    sendBytes = Serialization.serialize(responsePut);
-                } catch (IOException e) {
+                    this.DATABASE_SET.replace(keyRequest, requestedValue);
                 }
 
-                String toPrint = "Response to transaction id " + responsePut.getTRANSACTION_ID() + " from server id "
-                        + fromID;
-                this.sendAsync(Config.init_server_port + fromID, "server_response_put", sendBytes, toPrint);
+            } else {
+
+                System.out.println("NAO existia a chave " + keyRequest + ", vou inserir");
+
+                requestedValue.setServerWhichUpdate(smreqputMessage.getFromID());
+                this.DATABASE_SET.put(keyRequest, requestedValue);
             }
 
-            this.LOGICAL_CLOCK[this.SERVER_ID]++;
+            System.out.println("MY DATABASE = " + this.DATABASE_SET.toString());
 
-            this.send_update_clock_all_servers();
+            int reqID = smreqputMessage.getRequestID();
+            SMResponse smresputMessage = new SMResponse(reqID, wasUpdated, keyRequest, "put");
+
+            byte[] sendBytes = null;
+
+            try {
+                sendBytes = Serialization.serialize(smresputMessage);
+            } catch (IOException e) {
+            }
+
+            int fromPort = smreqputMessage.getFromID() + Config.init_server_port;
+            String print = "responding with request for id " + reqID + " to server " + fromPort;
+            this.sendAsync(fromPort, "server_response_put", sendBytes, print);
 
         }, this.executorService);
 
@@ -414,6 +381,42 @@ public class StorageService {
 
         this.messagingService.registerHandler("server_request_get", (address, messageBytes) -> {
 
+            SMRequest smreqgetMessage = null;
+
+            try {
+                smreqgetMessage = (SMRequest) Serialization.deserialize(messageBytes);
+            } catch (ClassNotFoundException | IOException e) {
+            }
+
+            Long keyToCheck = smreqgetMessage.getKeyToVerify();
+            StorageValue resultValue = null;
+
+            int transactionID = smreqgetMessage.getRequestID();
+            SMResponse smresgetMessage = new SMResponse(transactionID, keyToCheck, "get");
+
+            if (this.DATABASE_SET.containsKey(keyToCheck)) {
+
+                resultValue = this.DATABASE_SET.get(keyToCheck);
+
+                smresgetMessage.setHasValue(true);
+                smresgetMessage.setValue(resultValue);
+
+            } else {
+
+                smresgetMessage.setHasValue(false);
+            }
+
+            byte[] sendBytes = null;
+
+            try {
+                sendBytes = Serialization.serialize(smresgetMessage);
+            } catch (IOException e) {
+            }
+
+            int toServer = Config.init_server_port + smreqgetMessage.getFromID();
+            String print = "responding with request for id " + transactionID + " to server " + toServer;
+            this.sendAsync(toServer, "server_response_get", sendBytes, print);
+
         }, this.executorService);
     }
 
@@ -421,40 +424,27 @@ public class StorageService {
 
         this.messagingService.registerHandler("server_response_put", (address, messageBytes) -> {
 
-            SMResponsePut responseMessage = null;
+            SMResponse smresputMessage = null;
 
             try {
-                responseMessage = (SMResponsePut) Serialization.deserialize(messageBytes);
+                smresputMessage = (SMResponse) Serialization.deserialize(messageBytes);
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            int tid = responseMessage.getTRANSACTION_ID();
-            PutTransaction tidTransaction = this.WAITING_PUTS.get(tid);
+            int transactionID = smresputMessage.getRequestID();
+            PutTransaction transaction = this.WAITING_PUTS.get(transactionID);
 
-            System.out.println("[<server_response_put>] (" + address + ") recebi resposta ao server put, com lista "
-                    + responseMessage.getKeysToAbort() + " vou remover");
+            Long requestedKey = smresputMessage.getKey();
 
-            List<Long> keysList = responseMessage.getKeysToAbort();
+            transaction.setDone(requestedKey);
 
-            if (keysList.isEmpty()) {
+            System.out.println("[finished = " + transaction.isFinished() + "] transaction = " + transaction.toString());
 
-                tidTransaction.setDone(responseMessage.getKeyUpdated());
-            } else {
+            lock.lock();
 
-                tidTransaction.removeAll(responseMessage.getKeysToAbort());
-            }
-
-            System.out.println("[<server_response_put>] (" + address + ") transacao apos remover "
-                    + tidTransaction.getKeysToPut());
-
-            if (tidTransaction.isFinished()) {
-
-                System.out.println(
-                        "[<server_response_put>] (" + address + ") acabou transacao " + tid + " vou avisar o cliente");
-                System.out.println("[<server_response_put>] (" + address + ") apos transacao " + tid + " my DB = "
-                        + this.DATABASE_SET.toString());
-
-                CMResponsePut responsePut = new CMResponsePut(tid);
+            if (canEnter && transaction.isFinished()) {
+                canEnter = false;
+                CMResponsePut responsePut = new CMResponsePut(transactionID);
 
                 byte[] sendBytes = null;
 
@@ -463,51 +453,15 @@ public class StorageService {
                 } catch (IOException e) {
                 }
 
-                // avisar o client
-                this.sendAsync(tidTransaction.getClientPort(), "client_response_put", sendBytes,
-                        "client transaction finished, vou avisar o cliente");
+                int cPort = transaction.getClientPort();
+                String toPrint = "client " + cPort + " PUT transaction finished, vou avisar o cliente";
 
-                // remove from current transactions
-                // this.WAITING_PUTS.remove(tid);
+                this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
 
-            } else {
-
-                // pode faltar fazer atualizacoes cujo destino sou so eu
-                boolean leftsOnlyMe = true;
-                for (Map.Entry<Long, Boolean> entry : tidTransaction.getKeysToPut().entrySet()) {
-
-                    if (entry.getValue() == false) {
-                        int DESTINATIONID = this.find_storage_service(entry.getKey());
-                        if (DESTINATIONID != this.SERVER_ID)
-                            leftsOnlyMe = false;
-                    }
-                }
-
-                if (leftsOnlyMe) {
-
-                    for (Map.Entry<Long, byte[]> entry : this.WAITING_CLIENT_PUTS.get(tid).getRequestPut().entrySet()) {
-
-                        if (this.WAITING_PUTS.get(tid).getKeysToPut().get(entry.getKey()) == false) {
-                            this.DATABASE_SET.put(entry.getKey(), entry.getValue());
-                            tidTransaction.setDone(entry.getKey());
-                        }
-                    }
-
-                    CMResponsePut responsePut = new CMResponsePut(tid);
-
-                    byte[] sendBytes = null;
-
-                    try {
-                        sendBytes = Serialization.serialize(responsePut);
-                    } catch (IOException e) {
-                    }
-
-                    // avisar o client
-                    this.sendAsync(tidTransaction.getClientPort(), "client_response_put", sendBytes,
-                            "client transaction finished, vou avisar o cliente");
-
-                }
+                this.WAITING_PUTS.remove(transactionID);
             }
+
+            lock.unlock();
 
         }, this.executorService);
     }
@@ -516,14 +470,47 @@ public class StorageService {
 
         this.messagingService.registerHandler("server_response_get", (address, messageBytes) -> {
 
-        }, this.executorService);
-    }
+            SMResponse smresgetMessage = null;
 
-    private void register_server_update_clock() {
+            try {
+                smresgetMessage = (SMResponse) Serialization.deserialize(messageBytes);
+            } catch (ClassNotFoundException | IOException e) {
+            }
 
-        this.messagingService.registerHandler("server_update_clock", (address, messageBytes) -> {
+            int transactionID = smresgetMessage.getRequestID();
+            GetTransaction transaction = this.WAITING_GETS.get(transactionID);
 
-            // FIXME update clock
+            Long key = smresgetMessage.getKey();
+
+            if (smresgetMessage.hasValue()) {
+
+                StorageValue value = smresgetMessage.getValue();
+                transaction.setDone(key, value.getData());
+                transaction.incrementDone();
+
+            } else {
+
+                transaction.removeUnexisting(key);
+            }
+
+            if (transaction.isFinished()) {
+
+                CMResponseGet responseGet = new CMResponseGet(transactionID, transaction.getPreparedGets());
+
+                byte[] sendBytes = null;
+
+                try {
+                    sendBytes = Serialization.serialize(responseGet);
+                } catch (IOException e) {
+                }
+
+                int cPort = transaction.getClientPort();
+                String toPrint = "client " + cPort + " GET transaction finished, vou avisar o cliente";
+
+                this.sendAsync(cPort, "client_response_get", sendBytes, toPrint);
+
+                this.WAITING_GETS.remove(transactionID);
+            }
 
         }, this.executorService);
     }
@@ -543,5 +530,24 @@ public class StorageService {
                 this.sendAsync(i + Config.init_server_port, "server_update_clock", sendBytes,
                         "sending update clock to " + (i + Config.init_server_port));
         }
+    }
+
+    private void register_server_update_clock() {
+
+        this.messagingService.registerHandler("server_update_clock", (address, messageBytes) -> {
+
+        }, this.executorService);
+    }
+
+    public String printArray(int[] arr) {
+        String res = "[";
+        for (int i = 0; i < arr.length; i++) {
+            if (i == arr.length - 1)
+                res += (arr[i]);
+            else
+                res += (arr[i] + ",");
+        }
+        res += ("]");
+        return res;
     }
 }
