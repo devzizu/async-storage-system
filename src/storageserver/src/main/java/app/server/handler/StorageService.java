@@ -4,6 +4,7 @@ package app.server.handler;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -237,7 +238,7 @@ public class StorageService {
 
                 LOGGER.info("PUT/ [" + requestID + "] i was always the destination, responding back to client");
 
-                CMResponsePut responsePut = new CMResponsePut(requestID);
+                CMResponsePut responsePut = new CMResponsePut(requestID, this.DATABASE_SET);
 
                 byte[] sendBytes = null;
 
@@ -521,8 +522,9 @@ public class StorageService {
 
             if (!canBeExecuted) {
                 this.QUEUE_REQUESTS.add(update_clock_message);
-                LOGGER.info("CLOCK_UPDATE/ [from: " + address + "] added clock update message "
-                        + LogicalClockTool.printArray(update_clock_message.getClock()) + "to requests queue...");
+                LOGGER.info("CLOCK_UPDATE/ added clock update message "
+                        + LogicalClockTool.printArray(update_clock_message.getClock()) + " | my clock = "
+                        + LogicalClockTool.printArray(this.LOGICAL_CLOCK) + "to requests queue...");
             }
 
             LOGGER.info("[from: " + address + "] dispaching events...");
@@ -743,7 +745,8 @@ public class StorageService {
 
         if (canEnter && transaction.isFinished()) {
             canEnter = false;
-            CMResponsePut responsePut = new CMResponsePut(transactionID);
+
+            CMResponsePut responsePut = new CMResponsePut(transactionID, this.DATABASE_SET);
 
             byte[] sendBytes = null;
 
@@ -773,11 +776,6 @@ public class StorageService {
 
     public synchronized void dispach_queued_events() {
 
-        // lockDispach.lock();
-
-        LOGGER.warn("[****] DISPATCHING:\n\t\t      REQ_QUEUE_SIZE = " + this.QUEUE_REQUESTS.size()
-                + " | RES_QUEUE_SIZE = " + this.QUEUE_RESPONSES.size());
-
         ArrayList<SMResponse> toRemoveRes = new ArrayList<>();
         for (SMResponse res : this.QUEUE_RESPONSES) {
 
@@ -788,6 +786,7 @@ public class StorageService {
                     process_server_response_put(res);
                 else
                     process_server_response_get(res);
+
                 toRemoveRes.add(res);
             }
         }
@@ -804,7 +803,7 @@ public class StorageService {
 
                 if (req.isPutRequest())
                     process_server_request_put(req);
-                else
+                else if (!req.isUpdateClock())
                     process_server_request_get(req);
 
                 toRemoveRep.add(req);
@@ -813,6 +812,7 @@ public class StorageService {
 
         this.QUEUE_REQUESTS.removeAll(toRemoveRep);
 
-        // lockDispach.unlock();
+        LOGGER.warn("[****] AFTER DISPATCHING:\n\t\t      REQ_QUEUE_SIZE = " + this.QUEUE_REQUESTS.size()
+                + " | RES_QUEUE_SIZE = " + this.QUEUE_RESPONSES.size());
     }
 }

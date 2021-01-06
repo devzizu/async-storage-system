@@ -56,71 +56,25 @@ public class Client {
         cli_service.start();
 
         StorageAPI API = new StorageAPI(cli_service);
+        API.setDestinationID(0);
 
         // ---------------------------------------------------------------------------------------------------
 
-        API.setDestinationID(0);
-
-        try {
-            Thread.sleep(500);
-        } catch (InterruptedException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-
-        // for (int i = 0; i < 5; i++) {
-
-        // LOGGER.error("----------------------------------------------------");
-
-        // Chrono.start();
-
-        // Map<Long, byte[]> mapTestPut = new HashMap<>();
-
-        // int min = (i) * 100;
-        // int max = (i + 1) * 100;
-
-        // LOGGER.info("Testing between " + min + " and " + max);
-
-        // for (int j = min; j < max; j += 2) {
-        // mapTestPut.put((long) j, ("chave" + j).getBytes());
-        // }
-
-        // CompletableFuture<Void> resultPut = API.put(mapTestPut);
-
-        // resultPut.thenAccept(voidValue -> {
-        // Chrono.stop();
-        // LOGGER.info("(cliente) Recebi confirmação PUT de que terminou, OK!");
-        // LOGGER.warn(Chrono.stats());
-        // });
-
-        // mapTestPut.clear();
-
-        // LOGGER.warn("waiting...");
-
-        // try {
-        // Thread.sleep(1000);
-        // } catch (InterruptedException e) {
-        // // TODO Auto-generated catch block
-        // e.printStackTrace();
-        // }
-
-        // }
-
         Chrono.start();
 
-        if (CLIENT_ID == 0) {
+        if (CLIENT_ID == 0 || CLIENT_ID == 1) {
 
             // plan test
 
             Map<Long, byte[]> mapTestPut = new HashMap<>();
 
-            for (int i = 0; i < 500; i++) {
+            for (int i = CLIENT_ID; i < 500; i += 2) {
                 mapTestPut.put((long) i, ("chave" + i).getBytes());
             }
 
             // send async put request
 
-            API.setDestinationID(0);
+            API.setDestinationID(CLIENT_ID);
             CompletableFuture<Void> resultPut = API.put(mapTestPut);
 
             resultPut.thenAccept(voidValue -> {
@@ -129,7 +83,7 @@ public class Client {
                 LOGGER.warn(Chrono.stats());
             });
 
-        } else if (CLIENT_ID == 1) {
+        } else if (CLIENT_ID == 2) {
 
             // plan test
 
