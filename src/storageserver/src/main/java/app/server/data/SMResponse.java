@@ -2,6 +2,8 @@ package app.server.data;
 
 import java.io.Serializable;
 
+import app.server.clock.LogicalClockTool;
+
 public class SMResponse implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -13,21 +15,38 @@ public class SMResponse implements Serializable {
     private boolean isPut;
     private boolean hasValue;
 
-    public SMResponse(int tid, boolean updated, Long key, String type) {
+    private int[] clock;
+    private boolean isUpdateClock;
+    private int fromID;
 
+    public SMResponse(int tid, boolean updated, Long key, String type, int[] clock, int fromId) {
+
+        this.fromID = fromId;
         this.requestID = tid;
         this.updated = updated;
         this.key = key;
         this.isPut = type.equals("put") ? true : false;
         this.hasValue = false;
+        this.isUpdateClock = false;
+        this.clock = clock;
     }
 
-    public SMResponse(int tid, Long key, String type) {
+    public SMResponse(int tid, Long key, String type, int[] clock, int fromID) {
 
         this.requestID = tid;
         this.key = key;
         this.isPut = type.equals("put") ? true : false;
         this.hasValue = false;
+        this.isUpdateClock = false;
+        this.clock = clock;
+        this.fromID = fromID;
+    }
+
+    public SMResponse(int[] clock, int fromId) {
+
+        this.fromID = fromId;
+        this.isUpdateClock = true;
+        this.clock = clock;
     }
 
     public int getRequestID() {
@@ -61,5 +80,25 @@ public class SMResponse implements Serializable {
 
     public boolean hasValue() {
         return this.hasValue;
+    }
+
+    public int[] getClock() {
+
+        return this.clock;
+    }
+
+    public int getFromID() {
+
+        return this.fromID;
+    }
+
+    public boolean isUpdatedClock() {
+
+        return this.isUpdateClock;
+    }
+
+    @Override
+    public String toString() {
+        return "{" + ", key='" + getKey() + "'" + ", clock='" + LogicalClockTool.printArray(getClock()) + "'" + "}";
     }
 }

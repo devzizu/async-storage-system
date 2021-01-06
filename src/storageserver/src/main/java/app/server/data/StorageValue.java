@@ -4,6 +4,7 @@ package app.server.data;
 import java.io.Serializable;
 
 import app.Config;
+import app.server.clock.LogicalClockTool;
 
 public class StorageValue implements Serializable {
 
@@ -37,23 +38,12 @@ public class StorageValue implements Serializable {
 
     @Override
     public String toString() {
-        return "{" + "dTime='" + printArray(timestamp) + "'" + " updated by server " + ServerWhichUpdate + "}";
+        return "{" + "dTime='" + LogicalClockTool.printArray(timestamp) + "'" + " updated by server "
+                + ServerWhichUpdate + "}";
     }
 
     public byte[] getData() {
 
         return this.data;
-    }
-
-    public String printArray(int[] arr) {
-        String res = "[";
-        for (int i = 0; i < arr.length; i++) {
-            if (i == arr.length - 1)
-                res += (arr[i]);
-            else
-                res += (arr[i] + ",");
-        }
-        res += ("]");
-        return res;
     }
 }

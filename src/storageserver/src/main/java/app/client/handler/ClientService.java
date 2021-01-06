@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
+import org.apache.log4j.Logger;
+
 import app.Config;
 import app.Serialization;
 import app.client.FutureResponses;
@@ -15,6 +17,8 @@ import io.atomix.cluster.messaging.impl.NettyMessagingService;
 import io.atomix.utils.net.Address;
 
 public class ClientService {
+
+    private static Logger LOGGER = Logger.getLogger(ClientService.class);
 
     private ScheduledExecutorService executorService;
     private NettyMessagingService messagingService;
@@ -54,7 +58,7 @@ public class ClientService {
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            System.out.println("(handler) PUT recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
+            LOGGER.warn("(handler) PUT recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
 
             this.FUTURE_RESPONSES.completePut(responsePut);
 
@@ -72,7 +76,7 @@ public class ClientService {
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            System.out.println("(handler) GET recebi resposta para a transacao: " + responseGet.getMESSAGE_ID());
+            LOGGER.warn("(handler) GET recebi resposta para a transacao: " + responseGet.getMESSAGE_ID());
 
             this.FUTURE_RESPONSES.completeGet(responseGet);
 
