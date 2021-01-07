@@ -1,0 +1,29 @@
+
+nr_serv:
+	1,2,3,4
+
+Testes:
+
+server_pool:
+	1, 2, 4, 8, 16
+keys:
+	2, 128
+data:
+	10, 100, 1000, 10000, 100000
+
+1) 1 servidor:
+	
+
+varia:
+	- dados
+	- nr chaves
+	- nr servidores
+
+PUTS (mapa<key,val>)
+
+val = 1000 bytes
+2
+nr keys
+tam val
+
+GETS

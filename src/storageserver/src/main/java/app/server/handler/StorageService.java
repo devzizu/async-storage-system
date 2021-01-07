@@ -4,7 +4,6 @@ package app.server.handler;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,7 +45,7 @@ public class StorageService {
     static ReentrantLock lockCheckFinished = new ReentrantLock();
     static ReentrantLock lockClock = new ReentrantLock();
 
-    static boolean canEnter = true;
+    // static boolean canEnter = true;
 
     private ConcurrentHashMap<Integer, PutTransaction> WAITING_PUTS;
     private ConcurrentHashMap<Integer, GetTransaction> WAITING_GETS;
@@ -156,7 +155,7 @@ public class StorageService {
 
                         StorageValue lValue = this.DATABASE_SET.get(keyToProcess);
 
-                        if (lValue.getTimeStamp()[this.SERVER_ID] == svData.getTimeStamp()[this.SERVER_ID]) {
+                        if (LogicalClockTool.areConcurrent(lValue.getTimeStamp(), svData.getTimeStamp())) {
 
                             // conflito detetado
 
@@ -549,7 +548,7 @@ public class StorageService {
 
         if (this.DATABASE_SET.containsKey(keyRequest)) {
 
-            if (lastValue.getTimeStamp()[this.SERVER_ID] == requestedValue.getTimeStamp()[this.SERVER_ID]) {
+            if (LogicalClockTool.areConcurrent(lastValue.getTimeStamp(), requestedValue.getTimeStamp())) {
 
                 // conflito detetado
 
@@ -730,48 +729,49 @@ public class StorageService {
     public void process_server_response_put(SMResponse smresputMessage) {
 
         int transactionID = smresputMessage.getRequestID();
-        PutTransaction transaction = this.WAITING_PUTS.get(transactionID);
 
         Long requestedKey = smresputMessage.getKey();
-
-        transaction.setDone(requestedKey);
-
-        // System.out.println("[finished = " + transaction.isFinished() + "] transaction
-        // = " + transaction.toString());
 
         LOGGER.info("[transaction: " + transactionID + "] received response to put key " + requestedKey);
 
         lockCheckFinished.lock();
 
-        if (canEnter && transaction.isFinished()) {
-            canEnter = false;
+        PutTransaction transaction = this.WAITING_PUTS.get(transactionID);
 
-            CMResponsePut responsePut = new CMResponsePut(transactionID, this.DATABASE_SET);
+        if (!(transaction == null)) {
 
-            byte[] sendBytes = null;
+            transaction.setDone(requestedKey);
 
-            try {
-                sendBytes = Serialization.serialize(responsePut);
-            } catch (IOException e) {
+            if (transaction.isFinished()) {
+
+                CMResponsePut responsePut = new CMResponsePut(transactionID, this.DATABASE_SET);
+
+                byte[] sendBytes = null;
+
+                try {
+                    sendBytes = Serialization.serialize(responsePut);
+                } catch (IOException e) {
+                }
+
+                LOGGER.info("[transaction:  on finished, responding to client");
+
+                int cPort = transaction.getClientPort();
+                String toPrint = "client " + cPort + " PUT transaction finished, vou avisar o cliente";
+
+                this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
+
+                this.WAITING_PUTS.remove(transactionID);
+
+                LOGGER.warn(">>>>>>> [DATABASE]: " + this.DATABASE_SET.size());
             }
-
-            LOGGER.info("[transaction:  on finished, responding to client");
-
-            int cPort = transaction.getClientPort();
-            String toPrint = "client " + cPort + " PUT transaction finished, vou avisar o cliente";
-
-            this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
-
-            this.WAITING_PUTS.remove(transactionID);
-            canEnter = true;
-
-            LOGGER.warn(">>>>>>> [DATABASE]: " + this.DATABASE_SET.size());
         }
 
         lockCheckFinished.unlock();
 
         LOGGER.info("[transaction: " + transactionID + "] dispaching events...");
+
         dispach_queued_events();
+
     }
 
     public synchronized void dispach_queued_events() {

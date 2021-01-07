@@ -60,19 +60,23 @@ public class Client {
 
         // ---------------------------------------------------------------------------------------------------
 
-        Chrono.start();
-
         if (CLIENT_ID == 0 || CLIENT_ID == 1) {
+
+            int pedidos_keys = 500;
+            int tam_data = 1000;
 
             // plan test
 
             Map<Long, byte[]> mapTestPut = new HashMap<>();
 
-            for (int i = CLIENT_ID; i < 500; i += 2) {
-                mapTestPut.put((long) i, ("chave" + i).getBytes());
+            String data = "X".repeat(tam_data);
+            for (int i = 0; i < pedidos_keys; i++) {
+                mapTestPut.put((long) i, data.getBytes());
             }
 
             // send async put request
+
+            Chrono.start();
 
             API.setDestinationID(CLIENT_ID);
             CompletableFuture<Void> resultPut = API.put(mapTestPut);
@@ -95,7 +99,7 @@ public class Client {
 
             // send asyn get request
 
-            API.setDestinationID(1);
+            API.setDestinationID(0);
             CompletableFuture<Map<Long, byte[]>> resultGet = API.get(keysToGet);
 
             resultGet.thenAccept(map -> {

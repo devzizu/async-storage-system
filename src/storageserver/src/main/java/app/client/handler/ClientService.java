@@ -58,8 +58,9 @@ public class ClientService {
             } catch (ClassNotFoundException | IOException e) {
             }
 
-            responsePut.getUpdatedByResult().entrySet().forEach(entry -> LOGGER
-                    .warn("key: " + entry.getKey() + " | by S_ID: " + entry.getValue().getServerWhichUpdate()));
+            // responsePut.getUpdatedByResult().entrySet().forEach(entry -> LOGGER
+            // .warn("key: " + entry.getKey() + " | by S_ID: " +
+            // entry.getValue().getServerWhichUpdate()));
 
             LOGGER.warn("(handler) PUT recebi resposta para a transacao: " + responsePut.getMESSAGE_ID());
 

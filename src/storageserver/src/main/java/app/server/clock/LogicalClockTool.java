@@ -56,4 +56,21 @@ public class LogicalClockTool {
         res += ("]");
         return res;
     }
+
+    public synchronized static boolean areConcurrent(int[] c1, int[] c2) {
+
+        int bigger = 0, smaller = 0;
+        boolean concurrent = false;
+
+        for (int i = 0; i < Config.nr_servers && !concurrent; i++) {
+            if (c1[i] <= c2[i])
+                smaller++;
+            else if (c1[i] >= c2[i])
+                bigger++;
+            if (smaller > 0 && bigger > 0)
+                concurrent = true;
+        }
+
+        return concurrent;
+    }
 }
