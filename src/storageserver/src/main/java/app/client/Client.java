@@ -62,8 +62,8 @@ public class Client {
 
         if (CLIENT_ID == 0 || CLIENT_ID == 1) {
 
-            int pedidos_keys = 500;
-            int tam_data = 1000;
+            int pedidos_keys = 2;
+            int tam_data = 10;
 
             // plan test
 

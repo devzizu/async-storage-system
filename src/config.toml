@@ -1,6 +1,6 @@
 [defaults]
-nr_servers = 3
-server_thread_pool_size = 4
+nr_servers = 10
+server_thread_pool_size = 1
 client_thread_pool_size = 1
 [servers]
 init_server_port = 10000
