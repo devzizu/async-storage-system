@@ -1,3 +1,10 @@
+/*
+ * Generic Server Response Message.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
+
 package app.server.data;
 
 import java.io.Serializable;

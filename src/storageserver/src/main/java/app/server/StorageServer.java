@@ -1,3 +1,9 @@
+/*
+ * Main storage server class, initializes services at a given id.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
 
 package app.server;
 
@@ -9,10 +15,21 @@ import app.server.handler.StorageService;
 
 public class StorageServer {
 
+    /**
+     * Log events to console.
+     */
     private static Logger LOGGER = Logger.getLogger(StorageServer.class);
-
+    /**
+     * Server id.
+     */
     private static int SERVER_ID;
+    /**
+     * Server port.
+     */
     private static int SERVER_PORT;
+    /**
+     * Local server clock.
+     */
     private static int[] LOGICAL_CLOCK;
 
     public static void main(String[] args) {

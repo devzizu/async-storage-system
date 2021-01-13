@@ -1,3 +1,9 @@
+/*
+ * Runs all services for storage services messages.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
 
 package app.server.handler;
 
@@ -33,26 +39,65 @@ import io.atomix.utils.net.Address;
 
 public class StorageService {
 
+    /**
+     * Logs all events to console.
+     */
     private static Logger LOGGER = Logger.getLogger(StorageService.class);
 
+    /**
+     * Executor service
+     */
     private ScheduledExecutorService executorService;
+    /**
+     * Messaging service
+     */
     private NettyMessagingService messagingService;
+    /**
+     * Database set of this server id
+     */
     private ConcurrentHashMap<Long, StorageValue> DATABASE_SET;
+    /**
+     * Local logical clock
+     */
     private int[] LOGICAL_CLOCK;
+    /**
+     * Server id
+     */
     private int SERVER_ID;
 
+    /**
+     * Locks for concurrency control in clock access and transaction access
+     */
     static ReentrantLock lockDispach = new ReentrantLock();
     static ReentrantLock lockCheckFinished = new ReentrantLock();
     static ReentrantLock lockClock = new ReentrantLock();
 
     // static boolean canEnter = true;
 
+    /**
+     * Get transactions
+     */
     private ConcurrentHashMap<Integer, PutTransaction> WAITING_PUTS;
+    /**
+     * Put transactions
+     */
     private ConcurrentHashMap<Integer, GetTransaction> WAITING_GETS;
-
+    /**
+     * Queue of unresolved requests
+     */
     private ConcurrentLinkedQueue<SMRequest> QUEUE_REQUESTS;
+    /**
+     * Queue of unresolved responses
+     */
     private ConcurrentLinkedQueue<SMResponse> QUEUE_RESPONSES;
 
+    /**
+     * Constructor for StorageService.
+     * 
+     * @param sid   server id
+     * @param sport server port
+     * @param clock server clock
+     */
     public StorageService(int sid, int sport, int[] clock) {
 
         this.executorService = Executors.newScheduledThreadPool(Config.server_thread_pool_size);
@@ -82,6 +127,9 @@ public class StorageService {
         this.messagingService.start();
     }
 
+    /**
+     * Registers all handlers for the service
+     */
     public void register_handlers() {
 
         this.register_client_put();
@@ -93,10 +141,24 @@ public class StorageService {
         this.register_server_update_clock();
     }
 
+    /**
+     * Gets destination server using circular based array
+     * 
+     * @param key key to query
+     * @return destination id
+     */
     public int find_storage_service(Long key) {
         return (int) (key % Config.nr_servers);
     }
 
+    /**
+     * Generic function to send an assynchronous message
+     * 
+     * @param port        destination port
+     * @param typeHandler type of message
+     * @param data        message byte array
+     * @param print       log message
+     */
     public void sendAsync(int port, String typeHandler, byte[] data, String print) {
 
         this.messagingService.sendAsync(Address.from("localhost", port), typeHandler, data).thenRun(() -> {
@@ -107,6 +169,9 @@ public class StorageService {
         });
     }
 
+    /**
+     * Registers client put message handler
+     */
     private void register_client_put() {
 
         this.messagingService.registerHandler("client_put", (address, messageBytes) -> {
@@ -257,6 +322,9 @@ public class StorageService {
         }, this.executorService);
     }
 
+    /**
+     * Registers client get message handler
+     */
     private void register_client_get() {
 
         this.messagingService.registerHandler("client_get", (address, messageBytes) -> {
@@ -361,6 +429,9 @@ public class StorageService {
 
     }
 
+    /**
+     * Registers server request put message handler
+     */
     private void register_server_request_put() {
 
         this.messagingService.registerHandler("server_request_put", (address, messageBytes) -> {
@@ -390,6 +461,9 @@ public class StorageService {
         }, this.executorService);
     }
 
+    /**
+     * Registers server request get message handler
+     */
     private void register_server_request_get() {
 
         this.messagingService.registerHandler("server_request_get", (address, messageBytes) -> {
@@ -421,6 +495,9 @@ public class StorageService {
         }, this.executorService);
     }
 
+    /**
+     * Registers server response put message handler
+     */
     private void register_server_response_put() {
 
         this.messagingService.registerHandler("server_response_put", (address, messageBytes) -> {
@@ -452,6 +529,9 @@ public class StorageService {
         }, this.executorService);
     }
 
+    /**
+     * Registers server response get message handler
+     */
     private void register_server_response_get() {
 
         this.messagingService.registerHandler("server_response_get", (address, messageBytes) -> {
@@ -484,6 +564,9 @@ public class StorageService {
 
     }
 
+    /**
+     * Sends update clock messages to all servers (except current and destination)
+     */
     public void send_update_clock_all_servers(SMRequest sendUpdateClock, int destination) {
 
         byte[] sendBytesUpdateClock = null;
@@ -503,6 +586,9 @@ public class StorageService {
         }
     }
 
+    /**
+     * Registers server update clock message handler
+     */
     private void register_server_update_clock() {
 
         this.messagingService.registerHandler("server_update_clock", (address, messageBytes) -> {
@@ -532,6 +618,9 @@ public class StorageService {
         }, this.executorService);
     }
 
+    /**
+     * Processes server request put message handler
+     */
     private void process_server_request_put(SMRequest smreqputMessage) {
 
         int fromPort = smreqputMessage.getFromID() + Config.init_server_port;
@@ -618,6 +707,9 @@ public class StorageService {
         LOGGER.warn(">>>>>>> [DATABASE]: " + this.DATABASE_SET.size());
     }
 
+    /**
+     * Processes server request get message handler
+     */
     public void process_server_request_get(SMRequest smreqgetMessage) {
 
         Long keyToCheck = smreqgetMessage.getKeyToVerify();
@@ -677,6 +769,9 @@ public class StorageService {
         LOGGER.warn(">>>>>>> [DATABASE]: " + this.DATABASE_SET.size());
     }
 
+    /**
+     * Processes server response get message handler
+     */
     public void process_server_response_get(SMResponse smresgetMessage) {
 
         int transactionID = smresgetMessage.getRequestID();
@@ -726,6 +821,9 @@ public class StorageService {
 
     }
 
+    /**
+     * Processes server response put message handler
+     */
     public void process_server_response_put(SMResponse smresputMessage) {
 
         int transactionID = smresputMessage.getRequestID();
@@ -774,6 +872,9 @@ public class StorageService {
 
     }
 
+    /**
+     * Dispach all queued events
+     */
     public synchronized void dispach_queued_events() {
 
         ArrayList<SMResponse> toRemoveRes = new ArrayList<>();

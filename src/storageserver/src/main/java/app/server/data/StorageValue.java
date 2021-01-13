@@ -1,3 +1,9 @@
+/*
+ * Generic Server Storage Value for Database Set.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
 
 package app.server.data;
 

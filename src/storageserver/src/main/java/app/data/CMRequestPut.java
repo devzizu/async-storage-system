@@ -1,3 +1,10 @@
+/*
+ * Generic Client Request PUT Message.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
+
 package app.data;
 
 import java.io.Serializable;

@@ -1,3 +1,10 @@
+/*
+ * Generic GET transaction.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
+
 package app.server.data;
 
 import java.io.Serializable;

@@ -1,3 +1,10 @@
+/*
+ * Reads and stores all the configuration atributes using an
+ * structured config TOML file (as defined for this project).
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
 
 package app;
 
@@ -8,16 +15,41 @@ import com.moandjiezana.toml.Toml;
 
 public class Config {
 
+    /**
+     * Stores the defaults table
+     */
     private static Map<String, Object> defaults;
+    /**
+     * Stores the servers table
+     */
     private static Map<String, Object> servers;
-
+    /**
+     * Stores the number of servers
+     */
     public static int nr_servers;
+    /**
+     * Stores the server thread pool size for the storage server
+     */
     public static int server_thread_pool_size;
+    /**
+     * Stores the client thread pool size
+     */
     public static int client_thread_pool_size;
-
+    /**
+     * Stores the start server port
+     */
     public static int init_server_port;
+    /**
+     * Stores the start client port
+     */
     public static int init_client_port;
 
+    /**
+     * Read TOML configuration file and store all its values.
+     * 
+     * @param configFileName configuration file name
+     * @throws Exception
+     */
     public static void read(String configFileName) throws Exception {
 
         File configFile = new File("../config.toml");
@@ -34,6 +66,13 @@ public class Config {
         server_thread_pool_size = Integer.parseInt(Config.get_value("defaults", "server_thread_pool_size"));
     }
 
+    /**
+     * Get value from a given table.
+     * 
+     * @param table table name
+     * @param key   atribute to search
+     * @return value from the table
+     */
     private static String get_value(String table, String key) {
 
         String result;

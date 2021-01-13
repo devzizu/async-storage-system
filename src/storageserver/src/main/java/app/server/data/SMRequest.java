@@ -1,3 +1,9 @@
+/*
+ * Generic Server Request Message.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
 
 package app.server.data;
 

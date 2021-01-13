@@ -1,7 +1,13 @@
+/*
+ * Generic Client Response PUT Message.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
+
 package app.data;
 
 import java.io.Serializable;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import app.server.data.StorageValue;

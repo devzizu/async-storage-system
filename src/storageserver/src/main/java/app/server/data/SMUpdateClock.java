@@ -1,3 +1,10 @@
+/*
+ * Generic Server Update Clock.
+ * 
+ * @author Grupo10-FSD
+ * 
+*/
+
 package app.server.data;
 
 import java.io.Serializable;
