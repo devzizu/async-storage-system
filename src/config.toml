@@ -1,5 +1,5 @@
 [defaults]
-nr_servers = 10
+nr_servers = 3
 server_thread_pool_size = 1
 client_thread_pool_size = 1
 [servers]

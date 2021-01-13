@@ -56,14 +56,13 @@ public class Client {
         cli_service.start();
 
         StorageAPI API = new StorageAPI(cli_service);
-        API.setDestinationID(0);
 
         // ---------------------------------------------------------------------------------------------------
 
         if (CLIENT_ID == 0 || CLIENT_ID == 1) {
 
-            int pedidos_keys = 2;
-            int tam_data = 10;
+            int pedidos_keys = 500;
+            int tam_data = 1000;
 
             // plan test
 
@@ -78,7 +77,7 @@ public class Client {
 
             Chrono.start();
 
-            API.setDestinationID(CLIENT_ID);
+            // API.setDestinationID(CLIENT_ID);
             CompletableFuture<Void> resultPut = API.put(mapTestPut);
 
             resultPut.thenAccept(voidValue -> {
@@ -99,7 +98,7 @@ public class Client {
 
             // send asyn get request
 
-            API.setDestinationID(0);
+            // API.setDestinationID(1);
             CompletableFuture<Map<Long, byte[]>> resultGet = API.get(keysToGet);
 
             resultGet.thenAccept(map -> {

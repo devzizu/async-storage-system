@@ -3,6 +3,7 @@ package app.client.api;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.log4j.Logger;
@@ -32,6 +33,10 @@ public class StorageAPI {
         this.serverID = serverID;
     }
 
+    public int getRandomDestinationID() {
+        return (new Random()).nextInt(Config.nr_servers);
+    }
+
     public CompletableFuture<Void> put(Map<Long, byte[]> map) {
 
         FutureResponses futureR = this.clientService.getFutureResponses();
@@ -50,12 +55,12 @@ public class StorageAPI {
             LOGGER.error("error serializing in put method...");
         }
 
-        this.clientService.gNettyMessagingService()
-                .sendAsync(Address.from("localhost", Config.init_server_port + this.serverID), "client_put",
-                        messageBytes)
-                .thenRun(() -> {
+        int serverPort = Config.init_server_port + getRandomDestinationID();
 
-                    LOGGER.info("(api) enviei pedido PUT para a transacao: " + lastId);
+        this.clientService.gNettyMessagingService()
+                .sendAsync(Address.from("localhost", serverPort), "client_put", messageBytes).thenRun(() -> {
+
+                    LOGGER.info("[destID:" + serverPort + "] (api) enviei pedido PUT para a transacao: " + lastId);
 
                 }).exceptionally(t -> {
                     t.printStackTrace();
@@ -86,12 +91,12 @@ public class StorageAPI {
             LOGGER.error("error serializing in put method...");
         }
 
-        this.clientService.gNettyMessagingService()
-                .sendAsync(Address.from("localhost", Config.init_server_port + this.serverID), "client_get",
-                        messageBytes)
-                .thenRun(() -> {
+        int serverPort = Config.init_server_port + getRandomDestinationID();
 
-                    LOGGER.info("(api) enviei pedido GET para a transacao: " + lastId);
+        this.clientService.gNettyMessagingService()
+                .sendAsync(Address.from("localhost", serverPort), "client_get", messageBytes).thenRun(() -> {
+
+                    LOGGER.info("[destID:" + serverPort + "] (api) enviei pedido GET para a transacao: " + lastId);
 
                 }).exceptionally(t -> {
                     t.printStackTrace();
