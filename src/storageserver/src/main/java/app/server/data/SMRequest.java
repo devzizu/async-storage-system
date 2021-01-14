@@ -22,6 +22,8 @@ public class SMRequest implements Serializable {
     private boolean isPut;
     private boolean isUpdateClock;
     private int[] clock;
+    private int clientPort;
+    private int[] TIMESTAMP;
 
     public SMRequest(Long keyToVerify, int fromID, int tid, String type, int[] clock) {
 
@@ -33,7 +35,8 @@ public class SMRequest implements Serializable {
         this.isUpdateClock = false;
     }
 
-    public SMRequest(Long keyToVerify, StorageValue keyValue, int fromID, int tid, String type, int[] clock) {
+    public SMRequest(Long keyToVerify, StorageValue keyValue, int fromID, int tid, String type, int[] clock,
+            int[] tms) {
 
         this.keyToVerify = keyToVerify;
         this.keyValue = keyValue;
@@ -42,6 +45,7 @@ public class SMRequest implements Serializable {
         this.isPut = type.equals("put") ? true : false;
         this.isUpdateClock = false;
         this.clock = clock;
+        this.TIMESTAMP = tms;
     }
 
     public SMRequest(int[] clock, int fromID) {
@@ -54,6 +58,10 @@ public class SMRequest implements Serializable {
     public boolean isUpdateClock() {
 
         return this.isUpdateClock;
+    }
+
+    public int[] getTimeStamp() {
+        return this.TIMESTAMP;
     }
 
     public int[] getClock() {
@@ -84,5 +92,13 @@ public class SMRequest implements Serializable {
     public String toString() {
         return "{" + " keyToVerify='" + getKeyToVerify() + "'" + ", clock='" + LogicalClockTool.printArray(getClock())
                 + "'" + "}";
+    }
+
+    public void setClientPort(int port) {
+        this.clientPort = port;
+    }
+
+    public int getClientPort() {
+        return this.clientPort;
     }
 }

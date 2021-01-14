@@ -10,6 +10,7 @@ package app.server.handler;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,11 +78,11 @@ public class StorageService {
     /**
      * Get transactions
      */
-    private ConcurrentHashMap<Integer, PutTransaction> WAITING_PUTS;
+    private ConcurrentHashMap<Integer, HashMap<Integer, PutTransaction>> WAITING_PUTS;
     /**
      * Put transactions
      */
-    private ConcurrentHashMap<Integer, GetTransaction> WAITING_GETS;
+    private ConcurrentHashMap<Integer, HashMap<Integer, GetTransaction>> WAITING_GETS;
     /**
      * Queue of unresolved requests
      */
@@ -108,6 +109,9 @@ public class StorageService {
         this.LOGICAL_CLOCK = clock;
 
         this.DATABASE_SET = new ConcurrentHashMap<>();
+
+        if (sid == 0)
+            this.DATABASE_SET.put((long) 0, new StorageValue("old".getBytes(), new int[] { 1, -1 }, 0));
 
         this.WAITING_PUTS = new ConcurrentHashMap<>();
         this.WAITING_GETS = new ConcurrentHashMap<>();
@@ -198,7 +202,18 @@ public class StorageService {
             // LOGGER.info("PUT/[" + requestID + "] PUT transaction: " +
             // transaction.toString());
 
-            this.WAITING_PUTS.put(requestID, transaction);
+            int clientPort = cmreqputMessage.getCLI_PORT();
+            if (this.WAITING_PUTS.containsKey(clientPort)) {
+
+                HashMap<Integer, PutTransaction> beforeMap = this.WAITING_PUTS.get(clientPort);
+                beforeMap.put(requestID, transaction);
+
+            } else {
+
+                HashMap<Integer, PutTransaction> newMap = new HashMap<>();
+                newMap.put(requestID, transaction);
+                this.WAITING_PUTS.put(clientPort, newMap);
+            }
 
             boolean imAlwaysTheDestination = true;
 
@@ -243,10 +258,20 @@ public class StorageService {
 
                         } else {
 
-                            LOGGER.info("PUT/[" + requestID + "] no time conflict, key " + keyToProcess
-                                    + " [my key], replacing...");
+                            int countBefore = 0;
+                            for (int i = 0; i < Config.nr_servers; i++) {
+                                if (lValue.getTimeStamp()[i] < svData.getTimeStamp()[i]) {
+                                    countBefore++;
+                                }
+                            }
 
-                            this.DATABASE_SET.replace(keyToProcess, svData);
+                            if (countBefore == Config.nr_servers) {
+
+                                LOGGER.info("PUT/[" + requestID + "] no time conflict, key " + keyToProcess
+                                        + " [my key], replacing...");
+
+                                this.DATABASE_SET.replace(keyToProcess, svData);
+                            }
                         }
 
                     } else {
@@ -277,7 +302,8 @@ public class StorageService {
                     imAlwaysTheDestination = false;
 
                     SMRequest sendRequest = new SMRequest(keyToProcess, svData, this.SERVER_ID, requestID, "put",
-                            copyClock);
+                            copyClock, copyTimestamp);
+                    sendRequest.setClientPort(clientPort);
 
                     byte[] sendBytes = null;
 
@@ -302,7 +328,7 @@ public class StorageService {
 
                 LOGGER.info("PUT/ [" + requestID + "] i was always the destination, responding back to client");
 
-                CMResponsePut responsePut = new CMResponsePut(requestID, this.DATABASE_SET);
+                CMResponsePut responsePut = new CMResponsePut(requestID);
 
                 byte[] sendBytes = null;
 
@@ -316,7 +342,10 @@ public class StorageService {
 
                 this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
 
-                this.WAITING_PUTS.remove(requestID);
+                this.WAITING_PUTS.get(clientPort).remove(requestID);
+
+                if (this.WAITING_PUTS.get(clientPort).isEmpty())
+                    this.WAITING_PUTS.remove(clientPort);
             }
 
         }, this.executorService);
@@ -344,7 +373,14 @@ public class StorageService {
             LOGGER.info("received client " + address + " GET request (transaction: " + transactionID + ")");
             LOGGER.info("[" + transactionID + "] GET transaction: " + keys.toString());
 
-            this.WAITING_GETS.put(transactionID, transaction);
+            if (this.WAITING_GETS.containsKey(clientPort)) {
+                HashMap<Integer, GetTransaction> beforeMap = this.WAITING_GETS.get(clientPort);
+                beforeMap.put(transactionID, transaction);
+            } else {
+                HashMap<Integer, GetTransaction> newMap = new HashMap<>();
+                newMap.put(transactionID, transaction);
+                this.WAITING_GETS.put(clientPort, newMap);
+            }
 
             boolean isAlwaysForMe = true;
 
@@ -389,6 +425,7 @@ public class StorageService {
                             + (keyDestinationServerID + Config.init_server_port));
 
                     SMRequest smreqMessage = new SMRequest(keyToGet, this.SERVER_ID, transactionID, "get", copyClock);
+                    smreqMessage.setClientPort(clientPort);
 
                     byte[] sendBytes = null;
 
@@ -659,9 +696,19 @@ public class StorageService {
 
             } else {
 
-                LOGGER.info("[key: " + keyRequest + "] NO conflict, replacing...");
+                int countBefore = 0;
+                for (int i = 0; i < Config.nr_servers; i++) {
+                    if (lastValue.getTimeStamp()[i] < requestedValue.getTimeStamp()[i]) {
+                        countBefore++;
+                    }
+                }
 
-                this.DATABASE_SET.replace(keyRequest, requestedValue);
+                if (countBefore == Config.nr_servers) {
+
+                    LOGGER.info("[key: " + keyRequest + "] NO conflict, replacing...");
+
+                    this.DATABASE_SET.replace(keyRequest, requestedValue);
+                }
             }
 
         } else {
@@ -669,6 +716,7 @@ public class StorageService {
             LOGGER.info("[key: " + keyRequest + "] NO exists, inserting...");
 
             requestedValue.setServerWhichUpdate(smreqputMessage.getFromID());
+
             this.DATABASE_SET.put(keyRequest, requestedValue);
         }
 
@@ -686,6 +734,7 @@ public class StorageService {
 
         int reqID = smreqputMessage.getRequestID();
         SMResponse smresputMessage = new SMResponse(reqID, wasUpdated, keyRequest, "put", copyClock, this.SERVER_ID);
+        smresputMessage.setClientPort(smreqputMessage.getClientPort());
 
         byte[] sendBytes = null;
 
@@ -730,6 +779,7 @@ public class StorageService {
         LOGGER.info("[transaction: " + transactionID + "] received server request get key " + keyToCheck);
 
         SMResponse smresgetMessage = new SMResponse(transactionID, keyToCheck, "get", copyClock, this.SERVER_ID);
+        smresgetMessage.setClientPort(smreqgetMessage.getClientPort());
 
         if (this.DATABASE_SET.containsKey(keyToCheck)) {
 
@@ -775,7 +825,11 @@ public class StorageService {
     public void process_server_response_get(SMResponse smresgetMessage) {
 
         int transactionID = smresgetMessage.getRequestID();
-        GetTransaction transaction = this.WAITING_GETS.get(transactionID);
+
+        GetTransaction transaction = null;
+        int clientPort = smresgetMessage.getClientPort();
+        if (this.WAITING_GETS.containsKey(clientPort))
+            transaction = this.WAITING_GETS.get(clientPort).get(transactionID);
 
         Long key = smresgetMessage.getKey();
 
@@ -794,25 +848,28 @@ public class StorageService {
             LOGGER.info("[transaction: " + transactionID + "] that key was NOT FOUND, removing from GET/ transaction");
         }
 
-        if (transaction.isFinished()) {
+        if (!(transaction == null)) {
 
-            CMResponseGet responseGet = new CMResponseGet(transactionID, transaction.getPreparedGets());
+            if (transaction.isFinished()) {
 
-            byte[] sendBytes = null;
+                CMResponseGet responseGet = new CMResponseGet(transactionID, transaction.getPreparedGets());
 
-            try {
-                sendBytes = Serialization.serialize(responseGet);
-            } catch (IOException e) {
+                byte[] sendBytes = null;
+
+                try {
+                    sendBytes = Serialization.serialize(responseGet);
+                } catch (IOException e) {
+                }
+
+                LOGGER.info("[transaction: " + transactionID + "] GET/ transaction fininshed, replying to client");
+
+                int cPort = transaction.getClientPort();
+                String toPrint = "client " + cPort + " GET transaction finished, vou avisar o cliente";
+
+                this.sendAsync(cPort, "client_response_get", sendBytes, toPrint);
+
+                this.WAITING_GETS.get(clientPort).remove(transactionID);
             }
-
-            LOGGER.info("[transaction: " + transactionID + "] GET/ transaction fininshed, replying to client");
-
-            int cPort = transaction.getClientPort();
-            String toPrint = "client " + cPort + " GET transaction finished, vou avisar o cliente";
-
-            this.sendAsync(cPort, "client_response_get", sendBytes, toPrint);
-
-            this.WAITING_GETS.remove(transactionID);
         }
 
         LOGGER.info("[transaction: " + transactionID + "] dispaching events...");
@@ -834,7 +891,12 @@ public class StorageService {
 
         lockCheckFinished.lock();
 
-        PutTransaction transaction = this.WAITING_PUTS.get(transactionID);
+        int clientPort = smresputMessage.getClientPort();
+
+        PutTransaction transaction = null;
+
+        if (this.WAITING_PUTS.containsKey(clientPort))
+            transaction = this.WAITING_PUTS.get(clientPort).get(transactionID);
 
         if (!(transaction == null)) {
 
@@ -842,7 +904,7 @@ public class StorageService {
 
             if (transaction.isFinished()) {
 
-                CMResponsePut responsePut = new CMResponsePut(transactionID, this.DATABASE_SET);
+                CMResponsePut responsePut = new CMResponsePut(transactionID);
 
                 byte[] sendBytes = null;
 
@@ -858,7 +920,10 @@ public class StorageService {
 
                 this.sendAsync(cPort, "client_response_put", sendBytes, toPrint);
 
-                this.WAITING_PUTS.remove(transactionID);
+                this.WAITING_PUTS.get(transaction.getClientPort()).remove(transactionID);
+
+                if (this.WAITING_PUTS.get(transaction.getClientPort()).isEmpty())
+                    this.WAITING_PUTS.remove(transaction.getClientPort());
 
                 LOGGER.warn(">>>>>>> [DATABASE]: " + this.DATABASE_SET.size());
             }

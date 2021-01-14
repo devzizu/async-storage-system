@@ -61,14 +61,14 @@ public class Client {
 
         if (CLIENT_ID == 0 || CLIENT_ID == 1) {
 
-            int pedidos_keys = 500;
-            int tam_data = 1000;
+            int pedidos_keys = 1;
+            int tam_data = 1;
 
             // plan test
 
             Map<Long, byte[]> mapTestPut = new HashMap<>();
 
-            String data = "X".repeat(tam_data);
+            String data = ("X" + CLIENT_ID).repeat(tam_data);
             for (int i = 0; i < pedidos_keys; i++) {
                 mapTestPut.put((long) i, data.getBytes());
             }
@@ -77,7 +77,7 @@ public class Client {
 
             Chrono.start();
 
-            // API.setDestinationID(CLIENT_ID);
+            API.setDestinationID(1);
             CompletableFuture<Void> resultPut = API.put(mapTestPut);
 
             resultPut.thenAccept(voidValue -> {
@@ -86,19 +86,20 @@ public class Client {
                 LOGGER.warn(Chrono.stats());
             });
 
-        } else if (CLIENT_ID == 2) {
+        } else if (CLIENT_ID == 2 || CLIENT_ID == 3) {
 
             // plan test
 
             Collection<Long> keysToGet = new HashSet<Long>();
 
-            for (int i = 0; i < 500; i++) {
+            for (int i = 0; i < 1; i++) {
                 keysToGet.add((long) i);
             }
 
             // send asyn get request
+            Chrono.start();
 
-            // API.setDestinationID(1);
+            API.setDestinationID(0);
             CompletableFuture<Map<Long, byte[]>> resultGet = API.get(keysToGet);
 
             resultGet.thenAccept(map -> {

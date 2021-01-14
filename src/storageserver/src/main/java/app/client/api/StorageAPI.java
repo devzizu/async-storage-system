@@ -55,7 +55,8 @@ public class StorageAPI {
             LOGGER.error("error serializing in put method...");
         }
 
-        int serverPort = Config.init_server_port + getRandomDestinationID();
+        // int serverPort = Config.init_server_port + getRandomDestinationID();
+        int serverPort = Config.init_server_port + this.serverID;
 
         this.clientService.gNettyMessagingService()
                 .sendAsync(Address.from("localhost", serverPort), "client_put", messageBytes).thenRun(() -> {
@@ -91,7 +92,8 @@ public class StorageAPI {
             LOGGER.error("error serializing in put method...");
         }
 
-        int serverPort = Config.init_server_port + getRandomDestinationID();
+        // int serverPort = Config.init_server_port + getRandomDestinationID();
+        int serverPort = Config.init_server_port + this.serverID;
 
         this.clientService.gNettyMessagingService()
                 .sendAsync(Address.from("localhost", serverPort), "client_get", messageBytes).thenRun(() -> {

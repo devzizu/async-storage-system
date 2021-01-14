@@ -25,6 +25,7 @@ public class SMResponse implements Serializable {
     private int[] clock;
     private boolean isUpdateClock;
     private int fromID;
+    private int clientPort;
 
     public SMResponse(int tid, boolean updated, Long key, String type, int[] clock, int fromId) {
 
@@ -54,6 +55,14 @@ public class SMResponse implements Serializable {
         this.fromID = fromId;
         this.isUpdateClock = true;
         this.clock = clock;
+    }
+
+    public void setClientPort(int port) {
+        this.clientPort = port;
+    }
+
+    public int getClientPort() {
+        return this.clientPort;
     }
 
     public int getRequestID() {
