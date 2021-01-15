@@ -110,8 +110,9 @@ public class StorageService {
 
         this.DATABASE_SET = new ConcurrentHashMap<>();
 
-        if (sid == 0)
-            this.DATABASE_SET.put((long) 0, new StorageValue("old".getBytes(), new int[] { 1, -1 }, 0));
+        // if (sid == 0)
+        // this.DATABASE_SET.put((long) 0, new StorageValue("version1".getBytes(), new
+        // int[] { 1, -1 }, 0));
 
         this.WAITING_PUTS = new ConcurrentHashMap<>();
         this.WAITING_GETS = new ConcurrentHashMap<>();
