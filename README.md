@@ -16,4 +16,4 @@ Asynchronous distributed key-value pair storage system
 
 <br>
 
->**University of Minho, Software Engineering (4rd year)**
+>**University of Minho, Software Engineering (4th year)**
